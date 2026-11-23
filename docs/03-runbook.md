@@ -77,6 +77,12 @@ cp data/tactical.db /sdcard/Download/tactical-$(date +%Y%m%d-%H%M).db
 
 Luego `adb pull /sdcard/Download/tactical-*.db backup/`.
 
+Para dejar la base vacía (por ejemplo tras una demo):
+
+```bash
+bash ~/openterritorio/termux/reset-db.sh
+```
+
 ## Restaurar la tienda anterior
 
 Los respaldos están en `backup/` del PC. La tienda usaba `:3000`; hay que
