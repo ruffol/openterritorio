@@ -7,6 +7,8 @@
     <application
         android:label="OPENTERITORIO"
         android:name=".CrashApplication"
+        android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
         android:usesCleartextTraffic="true"
         android:largeHeap="true"
         android:icon="@mipmap/ic_launcher">

@@ -35,19 +35,18 @@ class CrashApplication : Application() {
             appendLine()
             append(Log.getStackTraceString(error))
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, "openterritorio-crash.txt")
-                put(MediaStore.Downloads.MIME_TYPE, "text/plain")
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-            }
-            val uri = contentResolver.insert(
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                values,
-            ) ?: return
-            contentResolver.openOutputStream(uri)?.use { output ->
-                output.write(report.toByteArray())
-            }
+        // minSdk 34: MediaStore.Downloads está disponible sin permisos extra.
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, "openterritorio-crash.txt")
+            put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+        }
+        val uri = contentResolver.insert(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            values,
+        ) ?: return
+        contentResolver.openOutputStream(uri)?.use { output ->
+            output.write(report.toByteArray())
         }
     }
 }

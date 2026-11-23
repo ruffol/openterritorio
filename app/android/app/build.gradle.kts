@@ -26,11 +26,12 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.openterritorio.openterritorio"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 24
+        // Solo Android 14 (API 34) y posteriores: el teléfono objetivo (FISE
+        // Q524, Android 14) cubre todas las APIs que usan la app y el canal
+        // OTA (PackageInstaller, MediaStore.Downloads, FLAG_MUTABLE).
+        minSdk = 34
+        // Flutter 3.50 compila y apunta a API 36 por defecto.
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)

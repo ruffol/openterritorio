@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -31,19 +30,15 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun versionInfo(): Map<String, Any?> {
-        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
-        } else {
-            @Suppress("DEPRECATION")
-            packageManager.getPackageInfo(packageName, 0)
-        }
-        val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            info.longVersionCode
-        } else {
-            @Suppress("DEPRECATION")
-            info.versionCode.toLong()
-        }
-        return mapOf("version_name" to info.versionName, "version_code" to code)
+        // minSdk 34: PackageInfoFlags y longVersionCode siempre disponibles.
+        val info = packageManager.getPackageInfo(
+            packageName,
+            PackageManager.PackageInfoFlags.of(0),
+        )
+        return mapOf(
+            "version_name" to info.versionName,
+            "version_code" to info.longVersionCode,
+        )
     }
 
     private fun install(path: String?, result: MethodChannel.Result) {
@@ -56,9 +51,7 @@ class MainActivity : FlutterActivity() {
             result.error("args", "no existe el APK: $path", null)
             return
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            !packageManager.canRequestPackageInstalls()
-        ) {
+        if (!packageManager.canRequestPackageInstalls()) {
             try {
                 startActivity(
                     Intent(
@@ -88,12 +81,9 @@ class MainActivity : FlutterActivity() {
                     action = InstallResultReceiver.ACTION_INSTALL
                     setPackage(packageName)
                 }
+                // Android 14 exige que el PendingIntent del instalador sea mutable.
                 val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        PendingIntent.FLAG_MUTABLE
-                    } else {
-                        0
-                    }
+                    PendingIntent.FLAG_MUTABLE
                 val pending = PendingIntent.getBroadcast(this, sessionId, intent, flags)
                 session.commit(pending.intentSender)
             }
