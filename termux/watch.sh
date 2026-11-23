@@ -31,6 +31,8 @@ while true; do
         echo "$NEW" >"$APPLIED"
         sv restart openterritorio >>"$LOG" 2>&1 || sv up openterritorio >>"$LOG" 2>&1
         echo "$(date -Is) servicio reiniciado" >>"$LOG"
+        # Si este deploy trae un watch.sh nuevo, recárgalo con runit.
+        sv restart openterritorio-deploy >>"$LOG" 2>&1 || true
       else
         echo "$(date -Is) ERROR al extraer el tarball" >>"$LOG"
       fi

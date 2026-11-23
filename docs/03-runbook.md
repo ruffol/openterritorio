@@ -55,6 +55,11 @@ que la versión instalada. Para builds reproducibles usa
 `app/android/key.properties` (local) o los secrets de CI (ver README). Si usas
 la debug key, compila siempre desde el mismo PC.
 
+> **Primera vez con OTA**: el `watch.sh` anterior no copia el APK ni recarga el
+> watcher. Tras desplegar esta versión, ejecuta una sola vez
+> `sv restart openterritorio-deploy` (por SSH o Termux) para que el servicio use
+> el script nuevo; los despliegues posteriores ya se recargan solos.
+
 ## Control remoto por SSH
 
 `sshd` escucha en **8022** con autenticación solo por clave (sin contraseña).
