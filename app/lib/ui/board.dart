@@ -89,12 +89,15 @@ class BoardPainter extends CustomPainter {
     final cosLat = math.cos(centerLat * math.pi / 180).clamp(0.15, 1.0);
     final spanX = spanLon * cosLat;
     final spanY = spanLat;
-    final scale = math.min(size.width / (spanX * 1.35), size.height / (spanY * 1.35));
+    final scale = math.min(
+      size.width / (spanX * 1.35),
+      size.height / (spanY * 1.35),
+    );
 
     Offset project(double lat, double lon) => Offset(
-          size.width / 2 + (lon - centerLon) * cosLat * scale,
-          size.height / 2 - (lat - centerLat) * scale,
-        );
+      size.width / 2 + (lon - centerLon) * cosLat * scale,
+      size.height / 2 - (lat - centerLat) * scale,
+    );
 
     _drawGrid(canvas, size, project, centerLat, centerLon, spanLat, spanLon);
 
@@ -102,7 +105,11 @@ class BoardPainter extends CustomPainter {
       final center = project(alert.lat, alert.lon);
       final color = _severityColor(alert.severity);
       final radiusPx = math.max(8.0, alert.radiusM / 111320.0 * scale);
-      canvas.drawCircle(center, radiusPx, Paint()..color = color.withValues(alpha: 0.10));
+      canvas.drawCircle(
+        center,
+        radiusPx,
+        Paint()..color = color.withValues(alpha: 0.10),
+      );
       canvas.drawCircle(
         center,
         radiusPx,
@@ -111,8 +118,12 @@ class BoardPainter extends CustomPainter {
           ..strokeWidth = 1.6
           ..color = color,
       );
-      _text(canvas, alert.title.isEmpty ? 'Alerta' : alert.title,
-          center + Offset(radiusPx + 4, -8), color);
+      _text(
+        canvas,
+        alert.title.isEmpty ? 'Alerta' : alert.title,
+        center + Offset(radiusPx + 4, -8),
+        color,
+      );
     }
 
     for (final event in state.events) {
@@ -124,8 +135,12 @@ class BoardPainter extends CustomPainter {
         ..lineTo(center.dx - 7, center.dy)
         ..close();
       canvas.drawPath(path, Paint()..color = _eventColor);
-      _text(canvas, event.note.isEmpty ? 'Evento' : event.note,
-          center + const Offset(9, -8), _eventColor);
+      _text(
+        canvas,
+        event.note.isEmpty ? 'Evento' : event.note,
+        center + const Offset(9, -8),
+        _eventColor,
+      );
     }
 
     for (final peer in state.peers.values) {
@@ -158,8 +173,16 @@ class BoardPainter extends CustomPainter {
         ..strokeWidth = 2
         ..color = _ownColor;
       canvas.drawCircle(center, 9, stroke);
-      canvas.drawLine(center - const Offset(15, 0), center + const Offset(15, 0), stroke);
-      canvas.drawLine(center - const Offset(0, 15), center + const Offset(0, 15), stroke);
+      canvas.drawLine(
+        center - const Offset(15, 0),
+        center + const Offset(15, 0),
+        stroke,
+      );
+      canvas.drawLine(
+        center - const Offset(0, 15),
+        center + const Offset(0, 15),
+        stroke,
+      );
       _text(canvas, 'YO', center + const Offset(11, -18), _ownColor);
     }
 
@@ -188,19 +211,21 @@ class BoardPainter extends CustomPainter {
     final step = spanLat > 0.5
         ? 0.1
         : spanLat > 0.1
-            ? 0.02
-            : spanLat > 0.02
-                ? 0.005
-                : 0.001;
+        ? 0.02
+        : spanLat > 0.02
+        ? 0.005
+        : 0.001;
     final paint = Paint()
       ..color = _grid
       ..strokeWidth = 1;
 
     final latMin = centerLat - spanLat * 0.7;
     final latMax = centerLat + spanLat * 0.7;
-    for (var lat = (latMin / step).floorToDouble() * step;
-        lat <= latMax;
-        lat += step) {
+    for (
+      var lat = (latMin / step).floorToDouble() * step;
+      lat <= latMax;
+      lat += step
+    ) {
       final y = project(lat, centerLon).dy;
       if (y < 0 || y > size.height) continue;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
@@ -208,16 +233,23 @@ class BoardPainter extends CustomPainter {
 
     final lonMin = centerLon - spanLon * 0.7;
     final lonMax = centerLon + spanLon * 0.7;
-    for (var lon = (lonMin / step).floorToDouble() * step;
-        lon <= lonMax;
-        lon += step) {
+    for (
+      var lon = (lonMin / step).floorToDouble() * step;
+      lon <= lonMax;
+      lon += step
+    ) {
       final x = project(centerLat, lon).dx;
       if (x < 0 || x > size.width) continue;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
 
-    _text(canvas, 'rejilla ${step.toStringAsFixed(3)}°', const Offset(8, 8),
-        _muted, size: 10);
+    _text(
+      canvas,
+      'rejilla ${step.toStringAsFixed(3)}°',
+      const Offset(8, 8),
+      _muted,
+      size: 10,
+    );
   }
 
   void _drawScale(Canvas canvas, Size size, double scale, bool empty) {
@@ -245,16 +277,26 @@ class BoardPainter extends CustomPainter {
     }
   }
 
-  void _text(Canvas canvas, String value, Offset at, Color color,
-      {double size = 11}) {
+  void _text(
+    Canvas canvas,
+    String value,
+    Offset at,
+    Color color, {
+    double size = 11,
+  }) {
     final painter = TextPainter(
       text: TextSpan(
         text: value,
-        style: TextStyle(color: color, fontSize: size, fontWeight: FontWeight.w500),
+        style: TextStyle(
+          color: color,
+          fontSize: size,
+          fontWeight: FontWeight.w500,
+        ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
     painter.paint(canvas, at);
+    painter.dispose();
   }
 
   @override

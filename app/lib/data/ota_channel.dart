@@ -7,8 +7,10 @@ class AppVersionInfo {
   final String versionName;
   final int versionCode;
 
-  static const AppVersionInfo unknown =
-      AppVersionInfo(versionName: '?', versionCode: 0);
+  static const AppVersionInfo unknown = AppVersionInfo(
+    versionName: '?',
+    versionCode: 0,
+  );
 }
 
 /// Puente con el código nativo de Android (PackageManager/PackageInstaller).
@@ -17,8 +19,9 @@ class OtaChannel {
 
   static Future<AppVersionInfo> currentVersion() async {
     try {
-      final result =
-          await _channel.invokeMapMethod<String, dynamic>('getVersion');
+      final result = await _channel.invokeMapMethod<String, dynamic>(
+        'getVersion',
+      );
       if (result == null) return AppVersionInfo.unknown;
       final code = result['version_code'];
       return AppVersionInfo(
@@ -49,8 +52,10 @@ class OtaChannel {
   /// desconocidas"; se abre Ajustes) o `error:<mensaje>`.
   static Future<String> install(String apkPath) async {
     try {
-      final result = await _channel
-          .invokeMethod<String>('install', <String, dynamic>{'path': apkPath});
+      final result = await _channel.invokeMethod<String>(
+        'install',
+        <String, dynamic>{'path': apkPath},
+      );
       return result ?? 'error:sin respuesta del instalador';
     } on MissingPluginException {
       return 'error:canal OTA no disponible';

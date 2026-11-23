@@ -92,6 +92,10 @@ WebSocket con reconexión exponencial, REST `/api/state`, tablero `CustomPainter
 GPS real (`geolocator`), eventos desde el campo, ACK de alertas y ajustes
 persistentes (`shared_preferences`).
 
+> Requiere **Android 14 (API 34) o superior** (`minSdk = 34`, `targetSdk = 36`).
+> La capa nativa usa directamente las APIs obligatorias en esa versión
+> (`PackageInstaller`, `MediaStore.Downloads`, `FLAG_MUTABLE`).
+
 > La capa `lib/data/` (estado + cliente del backend) se había quedado fuera del
 > repositorio: la regla `data/` del `.gitignore` también excluía `app/lib/data/`.
 > Ya está restaurada y cubierta por pruebas.
@@ -101,7 +105,7 @@ Verificado con Flutter 3.50.1 / JDK 17 / Android SDK 36 / Gradle 9.5:
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | sin incidencias |
-| `flutter test` | **14/14** (protocolo, estado, WebSocket/REST reales y OTA) |
+| `flutter test` | **23/23** (protocolo, estado, ajustes, texto, WebSocket/REST reales y OTA) |
 | `flutter build apk --release` (universal) | **OK** |
 
 Instrucciones en [`app/README.md`](app/README.md).

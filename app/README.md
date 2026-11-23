@@ -14,9 +14,15 @@ Cliente táctico del backend del teléfono. Estado: **completa y compilada**.
   posición propia) con deduplicación por `packet_id` y carga de la foto REST.
 - `lib/ui/board.dart` — tablero 100 % Dart (`CustomPainter`): rumbo, radios de
   alerta, rejilla, escala y coordenadas.
-- `lib/ui/home_page.dart` — conexión y ajustes persistentes, GPS real
-  (`geolocator`), envío adaptativo cada 5 s, ACK automático de alertas, botón
-  **SIM** y alta de eventos en la posición propia.
+- `lib/ui/home_page.dart` — orquesta conexión, GPS real (`geolocator`), envío
+  adaptativo cada 5 s, ACK automático de alertas, botón **SIM** y OTA.
+- `lib/ui/connection_dialog.dart`, `lib/ui/event_dialog.dart` y
+  `lib/ui/status_bar.dart` — diálogos de conexión/evento y pie de estado
+  extraídos de la pantalla principal.
+- `lib/data/connection_settings.dart` — persistencia tipada de URL, token y
+  `sender_id` estable (se genera una sola vez y se guarda).
+- `lib/util/utf8_truncate.dart` — recorte de notas a 64 bytes UTF-8 sin partir
+  caracteres multibyte.
 - `lib/data/ota_*.dart` + `lib/ui/update_dialog.dart` — **actualizaciones OTA**:
   consulta `/api/app/latest`, descarga el APK con token, verifica el sha256 y lo
   instala con `PackageInstaller` (canal nativo `openterritorio/ota`).
@@ -28,12 +34,12 @@ Cliente táctico del backend del teléfono. Estado: **completa y compilada**.
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | sin incidencias |
-| `flutter test` | **14/14** |
+| `flutter test` | **23/23** |
 | `flutter build apk --release` (universal) | **OK** |
 
-APK: `build/app/outputs/flutter-apk/app-release.apk` (**49,1 MB universal**:
-armv7, arm64 y x86_64). Toolchain: Flutter 3.50.1, Gradle 9.5, AGP 9.3.1,
-Kotlin 2.4.20.
+APK: `build/app/outputs/flutter-apk/app-release.apk` (**49,6 MB universal**:
+armv7, arm64 y x86_64), `minSdk 34` / `targetSdk 36`. Toolchain: Flutter 3.50.1,
+Gradle 9.5, AGP 9.3.1, Kotlin 2.4.20.
 
 > No uses `--target-platform android-arm` con AGP 9: el APK acaba anunciando
 > `arm64-v8a` (por las librerías de los plugins) sin `libflutter.so` de 64 bits,
@@ -42,8 +48,9 @@ Kotlin 2.4.20.
 
 ## Compilar
 
-Requisitos: Flutter 3.50.1 (Dart 3.14), JDK 17 y Android SDK 36. El wrapper de
-Gradle 9.5 se versiona en `android/`, así que no hace falta instalar Gradle.
+Requisitos: **Android 14 (API 34) o superior**, Flutter 3.50.1 (Dart 3.14),
+JDK 17 y Android SDK 36. El wrapper de Gradle 9.5 se versiona en `android/`, así
+que no hace falta instalar Gradle.
 
 ```powershell
 cd app
@@ -90,7 +97,10 @@ flutter test
   deduplicación, y snapshot de `/api/state`.
 - `test/backend_client_test.dart` — WebSocket y REST reales contra un backend de
   prueba en loopback: handshake con token, envío/recepción binaria y 401.
-
+- `test/connection_settings_test.dart` — valores por defecto, `sender_id`
+  estable entre arranques y round-trip de guardado.
+- `test/utf8_truncate_test.dart` — recorte de notas sin partir caracteres de
+  varios bytes (acentos y emoji).
 - `test/ota_service_test.dart` — metadata, descarga autenticada, sha256
   correcto/incorrecto, instalación inyectada y 404 sin publicación.
 

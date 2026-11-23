@@ -49,12 +49,14 @@ node tools/sim.js --url wss://tienda.tlalchichi.xyz/ws --token <TOKEN> --peers 3
 
 ## App Flutter
 
-Verificado el **2026-11-23** con Flutter 3.50.1, Dart 3.14, JDK 17 y SDK 36:
+Verificado el **2026-11-23** con Flutter 3.50.1, Dart 3.14, JDK 17 y SDK 36.
+La app está recortada a **Android 14 (API 34) o superior** (`minSdk 34`,
+`targetSdk 36`); el código nativo ya no mantiene ramas para versiones antiguas.
 
 | Prueba | Resultado |
 | --- | --- |
 | `flutter analyze` | sin incidencias |
-| `flutter test` (14 casos) | **14/14** |
+| `flutter test` (23 casos) | **23/23** |
 | `flutter build apk --release` (universal) | **OK** |
 
 - Protocolo: codificación byte a byte contra vectores de `protobufjs` (posición,
@@ -62,6 +64,9 @@ Verificado el **2026-11-23** con Flutter 3.50.1, Dart 3.14, JDK 17 y SDK 36:
   coordenadas negativas.
 - Estado: pares/eventos/alertas, deduplicación por `packet_id`, filtrado del eco
   propio y carga de `/api/state`.
+- Ajustes: URL/token/`sender_id` persistidos, con `sender_id` estable entre
+  arranques.
+- Texto: recorte a 64 bytes UTF-8 sin partir caracteres multibyte.
 - Cliente: WebSocket y REST reales en loopback (token, frames binarios, 401).
 - OTA: metadata, descarga autenticada, verificación de sha256 (y rechazo si no
   coincide), instalación inyectada y 404 sin publicación.

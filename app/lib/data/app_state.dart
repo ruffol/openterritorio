@@ -15,6 +15,19 @@ double _asDouble(Object? value, [double fallback = 0]) {
   return fallback;
 }
 
+/// Estado del enlace con el backend, tal como lo muestra la barra de estado.
+enum LinkState {
+  noToken('sin token'),
+  connecting('conectando'),
+  connected('conectado'),
+  disconnected('desconectado');
+
+  const LinkState(this.label);
+
+  /// Texto para el operador.
+  final String label;
+}
+
 /// Última posición conocida de otro dispositivo.
 class Peer {
   const Peer({
@@ -141,7 +154,7 @@ class AppState extends ChangeNotifier {
   static const int _maxEvents = 500;
   static const int _maxAlerts = 200;
 
-  String connection = 'desconectado';
+  LinkState link = LinkState.disconnected;
   bool simulating = false;
 
   /// `sender_id` propio: se usa para no pintar el eco de la propia posición.
@@ -164,9 +177,9 @@ class AppState extends ChangeNotifier {
   final Set<String> _eventIds = <String>{};
   final Set<String> _alertIds = <String>{};
 
-  void setConnection(String value) {
-    if (connection == value) return;
-    connection = value;
+  void setLink(LinkState value) {
+    if (link == value) return;
+    link = value;
     notifyListeners();
   }
 

@@ -353,9 +353,8 @@ class TacticalPacket {
     );
   }
 
-  String get packetIdHex => packetId
-      .map((b) => b.toRadixString(16).padLeft(2, '0'))
-      .join();
+  String get packetIdHex =>
+      packetId.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 }
 
 int _zigzag(int v) => (v >> 1) ^ -(v & 1);

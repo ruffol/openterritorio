@@ -1,21 +1,24 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:geolocator/geolocator.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/app_state.dart';
 import '../data/backend_client.dart';
+import '../data/connection_settings.dart';
 import '../data/ota_channel.dart';
 import '../data/ota_service.dart';
 import '../protocol/tactical_packet.dart';
 import 'board.dart';
+import 'connection_dialog.dart';
+import 'event_dialog.dart';
+import 'status_bar.dart';
 import 'update_dialog.dart';
 
+/// Pantalla principal: orquesta enlace, GPS, tablero, eventos y OTA.
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -24,15 +27,6 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  static const String _defaultUrl = String.fromEnvironment(
-    'OPENTERITORIO_URL',
-    defaultValue: 'http://127.0.0.1:3000',
-  );
-  static const String _defaultToken = String.fromEnvironment(
-    'OPENTERITORIO_TOKEN',
-    defaultValue: '',
-  );
-
   final AppState _state = AppState();
   final math.Random _random = math.Random.secure();
 
@@ -42,11 +36,14 @@ class _HomePageState extends State<HomePage> {
   StreamSubscription<Position>? _positionSub;
   Timer? _tickTimer;
 
-  String _baseUrl = _defaultUrl;
-  String _token = _defaultToken;
-  int _senderId = 2000 + math.Random().nextInt(7000);
+  /// Se sustituye en `_bootstrap` por la configuración persistida.
+  ConnectionSettings _settings = ConnectionSettings.fallback();
   int _simStep = 0;
   bool _checkingUpdate = false;
+
+  int get _senderId => _settings.senderId;
+
+  int get _nowSeconds => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
   @override
   void initState() {
@@ -56,16 +53,18 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _bootstrap() async {
-    final prefs = await SharedPreferences.getInstance();
-    _baseUrl = prefs.getString('op.url') ?? _defaultUrl;
-    _token = prefs.getString('op.token') ?? _defaultToken;
-    _senderId = prefs.getInt('op.sender') ?? _senderId;
-    _state.selfId = _senderId;
+    try {
+      _settings = await ConnectionSettings.load();
+    } on Object {
+      // Sin almacenamiento disponible se usan los valores de compilación.
+    }
     if (!mounted) return;
+    _state.selfId = _settings.senderId;
     setState(() {});
     _connect();
     unawaited(_startGps());
-    if (_token.isNotEmpty) {
+
+    if (_settings.hasToken) {
       // Comprobación de OTA en segundo plano, sin molestar al arrancar.
       unawaited(
         Future<void>.delayed(
@@ -73,8 +72,7 @@ class _HomePageState extends State<HomePage> {
           () => _checkUpdate(silent: true),
         ),
       );
-    }
-    if (_token.isEmpty) {
+    } else {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => _openSettings(first: true),
       );
@@ -85,34 +83,38 @@ class _HomePageState extends State<HomePage> {
     _packetSub?.cancel();
     _statusSub?.cancel();
     _client?.dispose();
+    _client = null;
 
-    if (_token.isEmpty) {
-      _state.setConnection('sin token');
+    if (!_settings.hasToken) {
+      _state.setLink(LinkState.noToken);
       return;
     }
 
     final client = BackendClient(
-      baseUrl: _baseUrl,
-      token: _token,
+      baseUrl: _settings.baseUrl,
+      token: _settings.token,
       senderId: _senderId,
     );
     _client = client;
     _packetSub = client.packets.listen(_onPacket);
-    _statusSub = client.statuses.listen((status) {
-      switch (status) {
-        case ConnectionStatus.connected:
-          _state.setConnection('conectado');
-          break;
-        case ConnectionStatus.connecting:
-          _state.setConnection('conectando');
-          break;
-        case ConnectionStatus.disconnected:
-          _state.setConnection('desconectado');
-          break;
-      }
-    });
+    _statusSub = client.statuses.listen(_onStatus);
     client.connect();
-    client
+    _refreshState(client);
+  }
+
+  void _onStatus(ConnectionStatus status) {
+    _state.setLink(switch (status) {
+      ConnectionStatus.connected => LinkState.connected,
+      ConnectionStatus.connecting => LinkState.connecting,
+      ConnectionStatus.disconnected => LinkState.disconnected,
+    });
+  }
+
+  /// Pide la foto de `/api/state` al backend actual.
+  void _refreshState([BackendClient? client]) {
+    final target = client ?? _client;
+    if (target == null) return;
+    target
         .fetchState()
         .then((json) => _state.applySnapshot(json))
         .catchError((Object error) => _state.setError('$error'));
@@ -130,7 +132,7 @@ class _HomePageState extends State<HomePage> {
       TacticalPacket(
         packetId: _randomPacketId(),
         senderId: _senderId,
-        timestamp: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        timestamp: _nowSeconds,
         type: PacketType.ackConfirmation,
         ack: AckPayload(ackedPacketId: packet.packetId),
       ),
@@ -185,7 +187,7 @@ class _HomePageState extends State<HomePage> {
       TacticalPacket(
         packetId: _randomPacketId(),
         senderId: _senderId,
-        timestamp: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        timestamp: _nowSeconds,
         type: PacketType.positionUpdate,
         position: PositionPayload(
           latitudeE7: (lat * 1e7).round(),
@@ -206,78 +208,22 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openSettings({bool first = false}) async {
-    final urlController = TextEditingController(text: _baseUrl);
-    final tokenController = TextEditingController(text: _token);
-    final idController = TextEditingController(text: '$_senderId');
-
-    final saved = await showDialog<bool>(
+    final updated = await showDialog<ConnectionSettings>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Conexión'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: urlController,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'Servidor',
-                  hintText: 'http://192.168.100.3:3000',
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: tokenController,
-                decoration: const InputDecoration(labelText: 'Token'),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: idController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'ID de dispositivo',
-                ),
-              ),
-              if (first)
-                const Padding(
-                  padding: EdgeInsets.only(top: 12),
-                  child: Text(
-                    'Introduce la URL y el token del backend.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
+      builder: (_) => ConnectionDialog(initial: _settings, firstTime: first),
     );
+    if (updated == null || !mounted) return;
 
-    if (saved == true) {
-      _baseUrl = urlController.text.trim();
-      _token = tokenController.text.trim();
-      _senderId = int.tryParse(idController.text.trim()) ?? _senderId;
-      _state.selfId = _senderId;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('op.url', _baseUrl);
-      await prefs.setString('op.token', _token);
-      await prefs.setInt('op.sender', _senderId);
-      _connect();
+    _settings = updated;
+    _state.selfId = updated.senderId;
+    try {
+      await updated.save();
+    } on Object catch (error) {
+      _state.setError('No se pudo guardar la configuración: $error');
     }
-
-    urlController.dispose();
-    tokenController.dispose();
-    idController.dispose();
+    if (!mounted) return;
+    setState(() {});
+    _connect();
   }
 
   Future<void> _createEvent() async {
@@ -288,82 +234,31 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    final noteController = TextEditingController();
-    var category = 0;
-    final create = await showDialog<bool>(
+    final draft = await showDialog<EventDraft>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Nuevo evento'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'En ${lat.toStringAsFixed(5)}, ${lon.toStringAsFixed(5)}',
-                style: const TextStyle(fontSize: 12, color: Colors.white54),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: noteController,
-                autofocus: true,
-                maxLength: 64,
-                decoration: const InputDecoration(labelText: 'Nota breve'),
-              ),
-              DropdownButtonFormField<int>(
-                initialValue: category,
-                decoration: const InputDecoration(labelText: 'Categoría'),
-                items: const <DropdownMenuItem<int>>[
-                  DropdownMenuItem<int>(value: 0, child: Text('Genérico')),
-                  DropdownMenuItem<int>(value: 1, child: Text('Peligro')),
-                  DropdownMenuItem<int>(value: 2, child: Text('Recurso')),
-                  DropdownMenuItem<int>(
-                    value: 3,
-                    child: Text('Punto de reunión'),
-                  ),
-                  DropdownMenuItem<int>(value: 4, child: Text('Control')),
-                ],
-                onChanged: (value) =>
-                    setDialogState(() => category = value ?? 0),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Marcar'),
-            ),
-          ],
-        ),
+      builder: (_) => EventDialog(latitude: lat, longitude: lon),
+    );
+    if (draft == null || !mounted) return;
+
+    final packet = TacticalPacket(
+      packetId: _randomPacketId(),
+      senderId: _senderId,
+      timestamp: _nowSeconds,
+      type: PacketType.userEvent,
+      event: EventPayload(
+        categoryId: draft.categoryId,
+        latitudeE7: (lat * 1e7).round(),
+        longitudeE7: (lon * 1e7).round(),
+        shortNote: draft.note,
       ),
     );
-
-    if (create == true) {
-      final packet = TacticalPacket(
-        packetId: _randomPacketId(),
-        senderId: _senderId,
-        timestamp: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        type: PacketType.userEvent,
-        event: EventPayload(
-          categoryId: category,
-          latitudeE7: (lat * 1e7).round(),
-          longitudeE7: (lon * 1e7).round(),
-          shortNote: _truncateUtf8(noteController.text.trim(), 64),
-        ),
-      );
-      final client = _client;
-      final delivered = client != null && client.send(packet);
-      _state.applyPacket(packet);
-      _showSnack(
-        delivered
-            ? 'Evento enviado.'
-            : 'Evento guardado; se enviará al reconectar.',
-      );
-    }
-    noteController.dispose();
+    final delivered = _client?.send(packet) ?? false;
+    _state.applyPacket(packet);
+    _showSnack(
+      delivered
+          ? 'Evento enviado.'
+          : 'Evento guardado; se enviará al reconectar.',
+    );
   }
 
   /// Comprueba si el backend publica una versión nueva y, si el operador
@@ -399,39 +294,12 @@ class _HomePageState extends State<HomePage> {
         return;
       }
 
-      final accepted = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Actualización v${update.version}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Instalada: v${local.versionName} (${local.versionCode})'),
-              const SizedBox(height: 4),
-              Text(
-                'Nueva: v${update.version} (${update.versionCode}) · '
-                '${_formatBytes(update.sizeBytes)}',
-              ),
-              if (update.notes.trim().isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(update.notes.trim()),
-              ],
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Ahora no'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Descargar e instalar'),
-            ),
-          ],
-        ),
+      final accepted = await confirmUpdate(
+        context,
+        update: update,
+        local: local,
       );
-      if (accepted != true || !mounted) return;
+      if (!accepted || !mounted) return;
 
       final result = await showDialog<String>(
         context: context,
@@ -458,38 +326,11 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  String _formatBytes(int bytes) {
-    if (bytes <= 0) return 'tamaño desconocido';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  /// Recorta a [maxBytes] bytes UTF-8 sin partir un carácter.
-  String _truncateUtf8(String value, int maxBytes) {
-    final bytes = utf8.encode(value);
-    if (bytes.length <= maxBytes) return value;
-    var end = maxBytes;
-    while (end > 0 && (bytes[end] & 0xC0) == 0x80) {
-      end -= 1;
-    }
-    return utf8.decode(bytes.sublist(0, end), allowMalformed: true);
-  }
-
-  Color get _connectionColor {
-    switch (_state.connection) {
-      case 'conectado':
-        return const Color(0xFF3DDC84);
-      case 'conectando':
-        return const Color(0xFFFFB020);
-      default:
-        return const Color(0xFFFF5C6C);
-    }
   }
 
   @override
@@ -509,12 +350,12 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: Row(
           children: [
-            Icon(Icons.circle, size: 9, color: _connectionColor),
+            Icon(Icons.circle, size: 9, color: linkColor(_state.link)),
             const SizedBox(width: 8),
             const Text('OPENTERITORIO'),
             const SizedBox(width: 8),
             Text(
-              'ID $_senderId',
+              'ID ${_settings.senderId}',
               style: const TextStyle(fontSize: 12, color: Colors.white54),
             ),
           ],
@@ -527,12 +368,7 @@ class _HomePageState extends State<HomePage> {
           ),
           IconButton(
             tooltip: 'Refrescar estado',
-            onPressed: () {
-              _client
-                  ?.fetchState()
-                  .then((json) => _state.applySnapshot(json))
-                  .catchError((Object error) => _state.setError('$error'));
-            },
+            onPressed: _refreshState,
             icon: const Icon(Icons.refresh),
           ),
           IconButton(
@@ -548,7 +384,7 @@ class _HomePageState extends State<HomePage> {
           return Column(
             children: [
               Expanded(child: TacticalBoard(state: _state)),
-              _statusBar(),
+              StatusBar(state: _state),
             ],
           );
         },
@@ -570,48 +406,6 @@ class _HomePageState extends State<HomePage> {
             icon: Icon(_state.simulating ? Icons.pause : Icons.play_arrow),
             label: Text(_state.simulating ? 'SIM ON' : 'SIM'),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _statusBar() {
-    final location = _state.ownLat == null
-        ? 'sin GPS (pulsa SIM)'
-        : '${_state.ownLat!.toStringAsFixed(5)}, ${_state.ownLon!.toStringAsFixed(5)}';
-    return Container(
-      width: double.infinity,
-      color: const Color(0xFF101722),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.circle, size: 8, color: _connectionColor),
-              const SizedBox(width: 6),
-              Text(
-                _state.connection,
-                style: const TextStyle(fontSize: 12, color: Colors.white70),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                location,
-                style: const TextStyle(fontSize: 12, color: Colors.white54),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${_state.peers.length} pares · ${_state.events.length} eventos · '
-            '${_state.alerts.length} alertas',
-            style: const TextStyle(fontSize: 12, color: Colors.white70),
-          ),
-          if (_state.lastError != null)
-            Text(
-              _state.lastError!,
-              style: const TextStyle(fontSize: 11, color: Color(0xFFFF5C6C)),
-            ),
         ],
       ),
     );

@@ -2,7 +2,55 @@ import 'dart:io';
 
 import 'package:material_ui/material_ui.dart';
 
+import '../data/ota_channel.dart';
 import '../data/ota_service.dart';
+
+/// Tamaño legible para el operador (`0` → «tamaño desconocido»).
+String formatBytes(int bytes) {
+  if (bytes <= 0) return 'tamaño desconocido';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
+
+/// Pregunta si se quiere instalar [update] sobre la versión [local].
+Future<bool> confirmUpdate(
+  BuildContext context, {
+  required OtaUpdate update,
+  required AppVersionInfo local,
+}) async {
+  final accepted = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('Actualización v${update.version}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Instalada: v${local.versionName} (${local.versionCode})'),
+          const SizedBox(height: 4),
+          Text(
+            'Nueva: v${update.version} (${update.versionCode}) · '
+            '${formatBytes(update.sizeBytes)}',
+          ),
+          if (update.notes.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(update.notes.trim()),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Ahora no'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Descargar e instalar'),
+        ),
+      ],
+    ),
+  );
+  return accepted ?? false;
+}
 
 /// Descarga e instala una actualización mostrando el progreso.
 ///
@@ -76,25 +124,17 @@ class _OtaUpdateDialogState extends State<OtaUpdateDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          LinearProgressIndicator(
-            value: _progress > 0 ? _progress : null,
-          ),
+          LinearProgressIndicator(value: _progress > 0 ? _progress : null),
           const SizedBox(height: 12),
           Text(
             _installing
                 ? 'Abriendo el instalador del sistema…'
                 : '${(_progress * 100).toStringAsFixed(0)} % '
-                    'de ${_formatBytes(widget.update.sizeBytes)}',
+                      'de ${formatBytes(widget.update.sizeBytes)}',
             style: const TextStyle(fontSize: 13),
           ),
         ],
       ),
     );
-  }
-
-  static String _formatBytes(int bytes) {
-    if (bytes <= 0) return 'tamaño desconocido';
-    final mb = bytes / (1024 * 1024);
-    return '${mb.toStringAsFixed(1)} MB';
   }
 }
