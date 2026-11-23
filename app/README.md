@@ -1,37 +1,58 @@
 # OPENTERITORIO · app Flutter (Fase B)
 
-Cliente táctico mínimo para el backend del teléfono.
+Cliente táctico del backend del teléfono. Estado: **completa y compilada**.
 
 ## Qué incluye
 
-- Protocolo Protobuf implementado a mano (sin `protoc`) en
-  `lib/protocol/tactical_packet.dart` (posición, evento, alerta y ACK).
-- Cliente WebSocket con reconexión exponencial y REST `/api/state`.
-- Tablero táctico 100 % Dart (`CustomPainter`): pares con rumbo, eventos,
-  alertas con radio, posición propia, rejilla, escala y coordenadas.
-- Pantalla de conexión: URL, token e ID de dispositivo.
-- Botón **SIM** para generar una posición en movimiento (Colima) cuando no hay
-  GPS; la app envía un `POSITION_UPDATE` cada 5 s.
+- `lib/protocol/tactical_packet.dart` — Protobuf a mano (sin `protoc`):
+  posición, evento, alerta y ACK. Los bytes se fijan contra vectores generados
+  con `protobufjs`, el mismo decoder del servidor.
+- `lib/data/backend_client.dart` — WebSocket binario con reconexión exponencial
+  (1–30 s con jitter), cola acotada a 90 s, token en el handshake y REST
+  `/api/state` con `Bearer`.
+- `lib/data/app_state.dart` — estado observable (pares, eventos, alertas,
+  posición propia) con deduplicación por `packet_id` y carga de la foto REST.
+- `lib/ui/board.dart` — tablero 100 % Dart (`CustomPainter`): rumbo, radios de
+  alerta, rejilla, escala y coordenadas.
+- `lib/ui/home_page.dart` — conexión y ajustes persistentes, GPS real
+  (`geolocator`), envío adaptativo cada 5 s, ACK automático de alertas, botón
+  **SIM** y alta de eventos en la posición propia.
+- Material UI mediante el paquete oficial `material_ui` (en Flutter 3.50
+  `package:flutter/material.dart` está deprecado).
 
-## Estado
+## Estado verificado
 
-- `flutter analyze`: sin errores (solo avisos de deprecación de Flutter 3.50).
-- **APK pendiente de compilar** en este PC: el toolchain está instalado
-  (Flutter 3.50.1, JDK 17, SDK 36, NDK 28.2.13676358), pero Gradle 9.5/AGP 9
-  resultó demasiado lento/inestable en esta máquina y la descarga de artefactos
-  del motor se atasca. El código está listo para `flutter build apk`.
-- `geolocator` y `shared_preferences` se retiraron: sus versiones actuales no
-  compilan con AGP 9 (`compileSdkVersion`/`jni` incompatibles). Por eso el GPS
-  real queda para una integración posterior (canal nativo o versión compatible)
-  y la configuración no persiste entre reinicios (usa `--dart-define`).
+| Comprobación | Resultado |
+| --- | --- |
+| `flutter analyze` | sin incidencias |
+| `flutter test` | **10/10** |
+| `flutter build apk --release --target-platform android-arm` | **OK** |
+
+APK: `build/app/outputs/flutter-apk/app-release.apk` (**15,4 MB**, armv7; el Q524
+es armeabi-v7a). Toolchain: Flutter 3.50.1, Gradle 9.5, AGP 9.3.1, Kotlin 2.4.20.
 
 ## Compilar
 
-Requisitos: Flutter 3.50+, JDK 17, Android SDK 36 y NDK 28.2.13676358.
+Requisitos: Flutter 3.50.1 (Dart 3.14), JDK 17 y Android SDK 36. El wrapper de
+Gradle 9.5 se versiona en `android/`, así que no hace falta instalar Gradle.
 
 ```powershell
 cd app
 flutter pub get
+flutter build apk --release --target-platform android-arm
+```
+
+Si Flutter detecta un JDK demasiado nuevo (p. ej. el JBR de Android Studio con
+Java 25), apunta al JDK 17:
+
+```powershell
+flutter config --jdk-dir "C:\ruta\a\jdk-17"
+```
+
+Valores por defecto editables con `--dart-define` (también desde la pantalla de
+conexión, que los persiste):
+
+```powershell
 flutter build apk --release --target-platform android-arm `
   --dart-define=OPENTERITORIO_URL=http://127.0.0.1:3000 `
   --dart-define=OPENTERITORIO_TOKEN=<TOKEN>
@@ -45,12 +66,34 @@ adb shell am start -n com.openterritorio.openterritorio/.MainActivity
 ```
 
 La app corre **en el mismo teléfono** que el backend; por eso el servidor por
-defecto es `http://127.0.0.1:3000`. Para un segundo teléfono, cambia la URL a
-`http://192.168.100.3:3000` o a la URL pública.
+defecto es `http://127.0.0.1:3000`. Para un segundo teléfono, usa
+`http://192.168.100.3:3000` o la URL pública.
+
+## Pruebas
+
+```powershell
+flutter analyze
+flutter test
+```
+
+- `test/protocol_test.dart` — byte a byte contra vectores de `protobufjs`,
+  decodificación de los paquetes del servidor, coordenadas negativas, estado y
+  deduplicación, y snapshot de `/api/state`.
+- `test/backend_client_test.dart` — WebSocket y REST reales contra un backend de
+  prueba en loopback: handshake con token, envío/recepción binaria y 401.
+
+## Probar contra el backend real
+
+```powershell
+dart run tool/wire_check.dart http://127.0.0.1:3000 <TOKEN>
+```
+
+Envía una posición, comprueba que aparece en `/api/state`, publica una alerta
+por REST, la recibe por WebSocket y responde con `ACK_CONFIRMATION` (verifica
+que el servidor lo registra). Es la misma ruta de código que usa la app.
 
 ## Siguiente iteración
 
-- Mapa vectorial con PMTiles/MBTiles y `maplibre_gl`.
-- GPS real con `geolocator` en una versión compatible o canal nativo.
-- Persistencia de ajustes (archivo propio o versión de `shared_preferences`
-  compatible con AGP 9).
+- Mapa vectorial offline con PMTiles/MBTiles y `maplibre_gl`.
+- Android Foreground Service para rastreo con pantalla apagada.
+- Adaptadores BLE, USB serial, malla (Nearby) y audio AFSK del PDF (fases 4–5).

@@ -1,8 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -54,6 +55,7 @@ class _HomePageState extends State<HomePage> {
     _baseUrl = prefs.getString('op.url') ?? _defaultUrl;
     _token = prefs.getString('op.token') ?? _defaultToken;
     _senderId = prefs.getInt('op.sender') ?? _senderId;
+    _state.selfId = _senderId;
     if (!mounted) return;
     setState(() {});
     _connect();
@@ -79,7 +81,7 @@ class _HomePageState extends State<HomePage> {
       senderId: _senderId,
     );
     _client = client;
-    _packetSub = client.packets.listen(_state.applyPacket);
+    _packetSub = client.packets.listen(_onPacket);
     _statusSub = client.statuses.listen((status) {
       switch (status) {
         case ConnectionStatus.connected:
@@ -98,6 +100,24 @@ class _HomePageState extends State<HomePage> {
         .fetchState()
         .then((json) => _state.applySnapshot(json))
         .catchError((Object error) => _state.setError('$error'));
+  }
+
+  /// Aplica el paquete y confirma las alertas nuevas con un ACK.
+  void _onPacket(TacticalPacket packet) {
+    final isNewAlert = packet.type == PacketType.serverAlert &&
+        packet.alert != null &&
+        !_state.knowsAlert(packet.packetIdHex);
+    _state.applyPacket(packet);
+    if (!isNewAlert) return;
+    _client?.send(
+      TacticalPacket(
+        packetId: _randomPacketId(),
+        senderId: _senderId,
+        timestamp: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        type: PacketType.ackConfirmation,
+        ack: AckPayload(ackedPacketId: packet.packetId),
+      ),
+    );
   }
 
   Future<void> _startGps() async {
@@ -123,6 +143,7 @@ class _HomePageState extends State<HomePage> {
             position.longitude,
             heading: position.heading.round(),
             speedKmh: position.speed * 3.6,
+            altitudeM: position.altitude,
           );
         },
         onError: (Object error) => _state.setError('GPS: $error'),
@@ -154,7 +175,7 @@ class _HomePageState extends State<HomePage> {
         position: PositionPayload(
           latitudeE7: (lat * 1e7).round(),
           longitudeE7: (lon * 1e7).round(),
-          altitudeM: 500,
+          altitudeM: _state.ownAltitudeM.round(),
           speedCms: (_state.ownSpeedKmh / 3.6 * 100).round(),
           headingDeg: _state.ownHeading,
           batteryPct: 100,
@@ -229,6 +250,7 @@ class _HomePageState extends State<HomePage> {
       _baseUrl = urlController.text.trim();
       _token = tokenController.text.trim();
       _senderId = int.tryParse(idController.text.trim()) ?? _senderId;
+      _state.selfId = _senderId;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('op.url', _baseUrl);
       await prefs.setString('op.token', _token);
@@ -239,6 +261,109 @@ class _HomePageState extends State<HomePage> {
     urlController.dispose();
     tokenController.dispose();
     idController.dispose();
+  }
+
+  Future<void> _createEvent() async {
+    final lat = _state.ownLat;
+    final lon = _state.ownLon;
+    if (lat == null || lon == null) {
+      _showSnack('Sin posición: activa el GPS o pulsa SIM.');
+      return;
+    }
+
+    final noteController = TextEditingController();
+    var category = 0;
+    final create = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Nuevo evento'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'En ${lat.toStringAsFixed(5)}, ${lon.toStringAsFixed(5)}',
+                style: const TextStyle(fontSize: 12, color: Colors.white54),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: noteController,
+                autofocus: true,
+                maxLength: 64,
+                decoration: const InputDecoration(labelText: 'Nota breve'),
+              ),
+              DropdownButtonFormField<int>(
+                initialValue: category,
+                decoration: const InputDecoration(labelText: 'Categoría'),
+                items: const <DropdownMenuItem<int>>[
+                  DropdownMenuItem<int>(value: 0, child: Text('Genérico')),
+                  DropdownMenuItem<int>(value: 1, child: Text('Peligro')),
+                  DropdownMenuItem<int>(value: 2, child: Text('Recurso')),
+                  DropdownMenuItem<int>(
+                    value: 3,
+                    child: Text('Punto de reunión'),
+                  ),
+                  DropdownMenuItem<int>(value: 4, child: Text('Control')),
+                ],
+                onChanged: (value) => setDialogState(() => category = value ?? 0),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Marcar'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (create == true) {
+      final packet = TacticalPacket(
+        packetId: _randomPacketId(),
+        senderId: _senderId,
+        timestamp: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        type: PacketType.userEvent,
+        event: EventPayload(
+          categoryId: category,
+          latitudeE7: (lat * 1e7).round(),
+          longitudeE7: (lon * 1e7).round(),
+          shortNote: _truncateUtf8(noteController.text.trim(), 64),
+        ),
+      );
+      final client = _client;
+      final delivered = client != null && client.send(packet);
+      _state.applyPacket(packet);
+      _showSnack(
+        delivered
+            ? 'Evento enviado.'
+            : 'Evento guardado; se enviará al reconectar.',
+      );
+    }
+    noteController.dispose();
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Recorta a [maxBytes] bytes UTF-8 sin partir un carácter.
+  String _truncateUtf8(String value, int maxBytes) {
+    final bytes = utf8.encode(value);
+    if (bytes.length <= maxBytes) return value;
+    var end = maxBytes;
+    while (end > 0 && (bytes[end] & 0xC0) == 0x80) {
+      end -= 1;
+    }
+    return utf8.decode(bytes.sublist(0, end), allowMalformed: true);
   }
 
   Color get _connectionColor {
@@ -308,10 +433,24 @@ class _HomePageState extends State<HomePage> {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _state.setSimulating(!_state.simulating),
-        icon: Icon(_state.simulating ? Icons.pause : Icons.play_arrow),
-        label: Text(_state.simulating ? 'SIM ON' : 'SIM'),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.small(
+            heroTag: 'event',
+            tooltip: 'Marcar evento en mi posición',
+            onPressed: _createEvent,
+            child: const Icon(Icons.add_location_alt_outlined),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'sim',
+            onPressed: () => _state.setSimulating(!_state.simulating),
+            icon: Icon(_state.simulating ? Icons.pause : Icons.play_arrow),
+            label: Text(_state.simulating ? 'SIM ON' : 'SIM'),
+          ),
+        ],
       ),
     );
   }

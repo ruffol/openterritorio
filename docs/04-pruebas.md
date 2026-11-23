@@ -47,8 +47,28 @@ node tools/sim.js --url wss://tienda.tlalchichi.xyz/ws --token <TOKEN> --peers 3
 - Persistencia tras reinicio del proceso (misma DB).
 - `healthz` no filtra contadores.
 
+## App Flutter
+
+Verificado el **2026-11-23** con Flutter 3.50.1, Dart 3.14, JDK 17 y SDK 36:
+
+| Prueba | Resultado |
+| --- | --- |
+| `flutter analyze` | sin incidencias |
+| `flutter test` (10 casos) | **10/10** |
+| `flutter build apk --release --target-platform android-arm` | **OK** |
+
+- Protocolo: codificación byte a byte contra vectores de `protobufjs` (posición,
+  evento, alerta y ACK), decodificación de los paquetes del servidor y
+  coordenadas negativas.
+- Estado: pares/eventos/alertas, deduplicación por `packet_id`, filtrado del eco
+  propio y carga de `/api/state`.
+- Cliente: WebSocket y REST reales en loopback (token, frames binarios, 401).
+- Extremo a extremo con el backend Node:
+  `dart run tool/wire_check.dart http://127.0.0.1:3999 <token>` → posición
+  persistida, alerta recibida por WS y ACK registrado (`OK` en los tres pasos).
+
 ## Pendientes (no bloqueantes)
 
-- Pruebas desde la **app Flutter** (fase siguiente) y desde transporte BLE/USB.
+- Pruebas en un segundo teléfono real (no solo el Q524).
+- Transporte BLE/USB/malla/AFSK y mapa vectorial (fases posteriores del PDF).
 - Carga sostenida > 30 clientes y con paquetes de evento/alerta mezclados.
-- Validar la app en un segundo teléfono real (no solo el Q524).

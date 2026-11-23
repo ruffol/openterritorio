@@ -25,6 +25,7 @@ de mapas, rastreo GPS y eventos multi-transporte corre **en el propio teléfono*
 - `proto/tactical_packet.proto` — contrato binario (sección 5 del PDF) + ACK.
 - `server/` — Node.js + Express + `ws` + protobufjs + `node:sqlite`.
 - `server/public/` — panel de operador: pares, eventos y alertas.
+- `app/` — cliente Flutter (protocolo, WebSocket/REST, tablero, GPS, eventos).
 - `termux/` — bootstrap, instalación, watcher de despliegue y limpieza.
 - `tools/` — despliegue y salud desde Windows por adb.
 - `docs/` — arquitectura, protocolo, runbook, pruebas y estado del teléfono.
@@ -55,15 +56,26 @@ node tools/sim.js --url wss://tienda.tlalchichi.xyz/ws --token <TOKEN> --peers 3
 - Límites: 200 clientes WS, frames ≤ 4 KB, 20 fallos de token/min por IP.
 - El token no se versiona: vive en `~/openterritorio/.env` y en `backup/token.txt`.
 
-## Fase B · app Flutter (en progreso)
+## Fase B · app Flutter (completa)
 
-`app/` contiene el cliente táctico: protocolo Protobuf a mano, WebSocket con
-reconexión, REST `/api/state`, tablero `CustomPainter` y simulación de posición.
-Compila conceptualmente con Flutter 3.50.1 + JDK 17 + SDK 36 + NDK 28.2.13676358.
+`app/` contiene el cliente táctico: protocolo Protobuf implementado a mano,
+WebSocket con reconexión exponencial, REST `/api/state`, tablero `CustomPainter`,
+GPS real (`geolocator`), eventos desde el campo, ACK de alertas y ajustes
+persistentes (`shared_preferences`).
 
-Estado: código completo y analizado, **APK aún no compilado** en este PC
-(Gradle 9.5/AGP 9 demasiado lento y descargas del motor inestables). Ver
-[`app/README.md`](app/README.md).
+> La capa `lib/data/` (estado + cliente del backend) se había quedado fuera del
+> repositorio: la regla `data/` del `.gitignore` también excluía `app/lib/data/`.
+> Ya está restaurada y cubierta por pruebas.
+
+Verificado con Flutter 3.50.1 / JDK 17 / Android SDK 36 / Gradle 9.5:
+
+| Comprobación | Resultado |
+| --- | --- |
+| `flutter analyze` | sin incidencias |
+| `flutter test` | **10/10** (protocolo, estado, WebSocket/REST reales en loopback) |
+| `flutter build apk --release --target-platform android-arm` | **OK** |
+
+Instrucciones en [`app/README.md`](app/README.md).
 
 ## Documentación
 

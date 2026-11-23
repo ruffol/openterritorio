@@ -1,8 +1,7 @@
-gradle-wrapper.jar
+# El wrapper se versiona para compilar sin Gradle instalado
+# (gradlew, gradlew.bat y gradle-wrapper.jar viven en el repo).
 /.gradle
 /captures/
-/gradlew
-/gradlew.bat
 /local.properties
 GeneratedPluginRegistrant.java
 .cxx/

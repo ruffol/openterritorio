@@ -37,6 +37,14 @@ jobs:
         working-directory: app
         run: flutter pub get
 
+      - name: Analizar
+        working-directory: app
+        run: flutter analyze
+
+      - name: Probar
+        working-directory: app
+        run: flutter test
+
       - name: Compilar APK armv7
         working-directory: app
         run: flutter build apk --release --target-platform android-arm

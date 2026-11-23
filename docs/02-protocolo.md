@@ -32,7 +32,7 @@ Fuente: `proto/tactical_packet.proto`. Compartido por todos los transportes.
   `radius_m`, `title` (≤ 64 bytes).
 - **AckPayload**: `acked_packet_id` (8 bytes).
 
-Tamaño real de un `POSITION_UPDATE` completo: **47–48 bytes** (cabe en LoRa).
+Tamaño real de un `POSITION_UPDATE` completo: **46–48 bytes** (cabe en LoRa).
 
 ## WebSocket
 

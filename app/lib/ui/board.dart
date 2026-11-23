@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../data/app_state.dart';
 
@@ -102,7 +102,7 @@ class BoardPainter extends CustomPainter {
       final center = project(alert.lat, alert.lon);
       final color = _severityColor(alert.severity);
       final radiusPx = math.max(8.0, alert.radiusM / 111320.0 * scale);
-      canvas.drawCircle(center, radiusPx, Paint()..color = color.withOpacity(0.10));
+      canvas.drawCircle(center, radiusPx, Paint()..color = color.withValues(alpha: 0.10));
       canvas.drawCircle(
         center,
         radiusPx,

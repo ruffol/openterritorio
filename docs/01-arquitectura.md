@@ -12,11 +12,12 @@
 - Paquetes **Protobuf** de ~25–45 bytes, idempotencia y deduplicación.
 - Backend central Node/Go + Redis + PostgreSQL/PostGIS + FCM.
 
-## Qué se construyó en esta fase
+## Qué se construyó
 
 El **backend** corriendo en el teléfono, con el mismo contrato binario y una API
-HTTP para el panel. La app Flutter, los adaptadores BLE/USB/malla/AFSK y el
-pipeline de teselas son fases posteriores.
+HTTP para el panel, y el **cliente Flutter** de Fase B: protocolo Protobuf,
+WebSocket con reconexión, REST `/api/state`, tablero táctico, GPS y eventos. Los
+adaptadores BLE/USB/malla/AFSK y el pipeline de teselas son fases posteriores.
 
 ```
             Internet
@@ -96,8 +97,8 @@ Todo el estado vive en `~/openterritorio/data/tactical.db` (WAL). El contrato
 
 ## Siguiente fase (propuesta)
 
-1. **App Flutter** (Fase 1 del PDF): MapLibre + MBTiles/PMTiles, GPS en primer
-   plano, SQLite/Drift y `WebSocketAdapter` contra este backend.
+1. **Mapa offline** (Fase 1 del PDF): MapLibre + MBTiles/PMTiles y SQLite/Drift
+   local, sobre el cliente actual.
 2. **Foreground Service** y cola de sincronización (Fase 3).
 3. **BLE/USB** (Fase 4) y **malla/AFSK** (Fase 5).
 4. Si hace falta servidor central, reutilizar el mismo `proto` y la misma API;
