@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   web_socket_channel: ^3.0.3
   http: ^1.2.2
+  geolocator: ^14.1.2
+  shared_preferences: ^2.5.6
 
 dev_dependencies:
   flutter_test:

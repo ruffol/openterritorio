@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/app_state.dart';
 import '../data/backend_client.dart';
@@ -32,6 +34,7 @@ class _HomePageState extends State<HomePage> {
   BackendClient? _client;
   StreamSubscription<TacticalPacket>? _packetSub;
   StreamSubscription<ConnectionStatus>? _statusSub;
+  StreamSubscription<Position>? _positionSub;
   Timer? _tickTimer;
 
   String _baseUrl = _defaultUrl;
@@ -46,9 +49,15 @@ class _HomePageState extends State<HomePage> {
     _tickTimer = Timer.periodic(const Duration(seconds: 5), (_) => _tick());
   }
 
-  void _bootstrap() {
+  Future<void> _bootstrap() async {
+    final prefs = await SharedPreferences.getInstance();
+    _baseUrl = prefs.getString('op.url') ?? _defaultUrl;
+    _token = prefs.getString('op.token') ?? _defaultToken;
+    _senderId = prefs.getInt('op.sender') ?? _senderId;
+    if (!mounted) return;
     setState(() {});
     _connect();
+    unawaited(_startGps());
     if (_token.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openSettings(first: true));
     }
@@ -89,6 +98,38 @@ class _HomePageState extends State<HomePage> {
         .fetchState()
         .then((json) => _state.applySnapshot(json))
         .catchError((Object error) => _state.setError('$error'));
+  }
+
+  Future<void> _startGps() async {
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      _positionSub = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          distanceFilter: 2,
+        ),
+      ).listen(
+        (position) {
+          _state.setOwn(
+            position.latitude,
+            position.longitude,
+            heading: position.heading.round(),
+            speedKmh: position.speed * 3.6,
+          );
+        },
+        onError: (Object error) => _state.setError('GPS: $error'),
+      );
+    } catch (error) {
+      _state.setError('GPS: $error');
+    }
   }
 
   void _tick() {
@@ -188,6 +229,10 @@ class _HomePageState extends State<HomePage> {
       _baseUrl = urlController.text.trim();
       _token = tokenController.text.trim();
       _senderId = int.tryParse(idController.text.trim()) ?? _senderId;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('op.url', _baseUrl);
+      await prefs.setString('op.token', _token);
+      await prefs.setInt('op.sender', _senderId);
       _connect();
     }
 
@@ -212,6 +257,7 @@ class _HomePageState extends State<HomePage> {
     _tickTimer?.cancel();
     _packetSub?.cancel();
     _statusSub?.cancel();
+    _positionSub?.cancel();
     _client?.dispose();
     _state.dispose();
     super.dispose();
@@ -272,7 +318,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _statusBar() {
     final location = _state.ownLat == null
-        ? 'sin posición (pulsa SIM)'
+        ? 'sin GPS (pulsa SIM)'
         : '${_state.ownLat!.toStringAsFixed(5)}, ${_state.ownLon!.toStringAsFixed(5)}';
     return Container(
       width: double.infinity,
