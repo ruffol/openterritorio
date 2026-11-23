@@ -62,11 +62,11 @@ jobs:
         working-directory: app
         run: flutter test
 
-      - name: Compilar APK armv7
+      - name: Compilar APK universal
         working-directory: app
         run: |
           for intento in 1 2 3; do
-            if flutter build apk --release --target-platform android-arm; then
+            if flutter build apk --release; then
               exit 0
             fi
             echo "::warning::intento $intento falló (a veces Maven Central responde 429); reintento en 30 s"

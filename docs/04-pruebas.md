@@ -55,7 +55,7 @@ Verificado el **2026-11-23** con Flutter 3.50.1, Dart 3.14, JDK 17 y SDK 36:
 | --- | --- |
 | `flutter analyze` | sin incidencias |
 | `flutter test` (14 casos) | **14/14** |
-| `flutter build apk --release --target-platform android-arm` | **OK** |
+| `flutter build apk --release` (universal) | **OK** |
 
 - Protocolo: codificación byte a byte contra vectores de `protobufjs` (posición,
   evento, alerta y ACK), decodificación de los paquetes del servidor y

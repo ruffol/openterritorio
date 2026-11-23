@@ -102,7 +102,7 @@ Verificado con Flutter 3.50.1 / JDK 17 / Android SDK 36 / Gradle 9.5:
 | --- | --- |
 | `flutter analyze` | sin incidencias |
 | `flutter test` | **14/14** (protocolo, estado, WebSocket/REST reales y OTA) |
-| `flutter build apk --release --target-platform android-arm` | **OK** |
+| `flutter build apk --release` (universal) | **OK** |
 
 Instrucciones en [`app/README.md`](app/README.md).
 

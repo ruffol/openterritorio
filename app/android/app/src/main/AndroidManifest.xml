@@ -6,8 +6,9 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application
         android:label="OPENTERITORIO"
-        android:name="${applicationName}"
+        android:name=".CrashApplication"
         android:usesCleartextTraffic="true"
+        android:largeHeap="true"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
@@ -36,6 +37,11 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- GPUs antiguas (Mali-400 / GLES 2.0): Impeller puede cerrar la app
+             al arrancar; forzamos el renderizador Skia. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
         <receiver
             android:name=".InstallResultReceiver"
             android:exported="false" />

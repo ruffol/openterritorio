@@ -29,10 +29,16 @@ Cliente táctico del backend del teléfono. Estado: **completa y compilada**.
 | --- | --- |
 | `flutter analyze` | sin incidencias |
 | `flutter test` | **14/14** |
-| `flutter build apk --release --target-platform android-arm` | **OK** |
+| `flutter build apk --release` (universal) | **OK** |
 
-APK: `build/app/outputs/flutter-apk/app-release.apk` (**15,4 MB**, armv7; el Q524
-es armeabi-v7a). Toolchain: Flutter 3.50.1, Gradle 9.5, AGP 9.3.1, Kotlin 2.4.20.
+APK: `build/app/outputs/flutter-apk/app-release.apk` (**49,1 MB universal**:
+armv7, arm64 y x86_64). Toolchain: Flutter 3.50.1, Gradle 9.5, AGP 9.3.1,
+Kotlin 2.4.20.
+
+> No uses `--target-platform android-arm` con AGP 9: el APK acaba anunciando
+> `arm64-v8a` (por las librerías de los plugins) sin `libflutter.so` de 64 bits,
+> y en un teléfono de 64 bits Android lo instala en 64 bits y **se cierra al
+> arrancar**. El APK universal evita ese problema.
 
 ## Compilar
 
@@ -42,7 +48,7 @@ Gradle 9.5 se versiona en `android/`, así que no hace falta instalar Gradle.
 ```powershell
 cd app
 flutter pub get
-flutter build apk --release --target-platform android-arm
+flutter build apk --release
 ```
 
 Si Flutter detecta un JDK demasiado nuevo (p. ej. el JBR de Android Studio con
@@ -56,7 +62,7 @@ Valores por defecto editables con `--dart-define` (también desde la pantalla de
 conexión, que los persiste):
 
 ```powershell
-flutter build apk --release --target-platform android-arm `
+flutter build apk --release `
   --dart-define=OPENTERITORIO_URL=http://127.0.0.1:3000 `
   --dart-define=OPENTERITORIO_TOKEN=<TOKEN>
 ```
@@ -114,6 +120,18 @@ el instalador del sistema.
   `ANDROID_KEY_PASSWORD` (ver workflow).
 - Publicar: `tools\publish-apk.ps1` (compila, calcula sha256, sube APK y
   `latest.json` al teléfono); el watcher los sirve en ≤ 10 s.
+
+## Si la app se cierra al arrancar
+
+- Este APK es **universal**. Si antes instalaste un APK de CI (firma distinta)
+  desinstala primero; el instalador rechaza firmas diferentes.
+- La app escribe `Descargas/openterritorio-crash.txt` con el stack y las ABIs
+  reales del teléfono (capturador `CrashApplication`).
+- Con USB: `adb install -r build\app\outputs\flutter-apk\app-release.apk` y
+  `adb logcat -b crash` para ver el error completo.
+- Impeller está desactivado en el manifiesto (`EnableImpeller=false`): las GPU
+  Mali-400/GLES 2.0 de equipos como el Q524 han provocado cierres en Flutter
+  3.4x/3.5x. Si se reactiva, hazlo solo tras probar en el teléfono.
 
 ## Siguiente iteración
 

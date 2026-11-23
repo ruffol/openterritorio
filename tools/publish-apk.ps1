@@ -27,7 +27,7 @@ if ($BuildNumber -le 0) { throw 'Indica -BuildNumber (versionCode) mayor que el 
 if (-not $SkipBuild) {
   Push-Location $app
   try {
-    & $Flutter build apk --release --target-platform android-arm `
+    & $Flutter build apk --release `
       --build-name $Version --build-number $BuildNumber
     if ($LASTEXITCODE -ne 0) { throw 'flutter build falló' }
   } finally {
