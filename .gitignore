@@ -7,3 +7,12 @@ logs/
 .env
 screen*.png
 shot*.png
+.pub-cache/
+app/.dart_tool/
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.idea/
+app/*.iml
+app/android/.gradle/
+app/android/local.properties

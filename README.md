@@ -55,6 +55,16 @@ node tools/sim.js --url wss://tienda.tlalchichi.xyz/ws --token <TOKEN> --peers 3
 - Límites: 200 clientes WS, frames ≤ 4 KB, 20 fallos de token/min por IP.
 - El token no se versiona: vive en `~/openterritorio/.env` y en `backup/token.txt`.
 
+## Fase B · app Flutter (en progreso)
+
+`app/` contiene el cliente táctico: protocolo Protobuf a mano, WebSocket con
+reconexión, REST `/api/state`, tablero `CustomPainter` y simulación de posición.
+Compila conceptualmente con Flutter 3.50.1 + JDK 17 + SDK 36 + NDK 28.2.13676358.
+
+Estado: código completo y analizado, **APK aún no compilado** en este PC
+(Gradle 9.5/AGP 9 demasiado lento y descargas del motor inestables). Ver
+[`app/README.md`](app/README.md).
+
 ## Documentación
 
 - [Estado del teléfono](docs/00-estado-celular.md)
