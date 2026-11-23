@@ -64,7 +64,16 @@ jobs:
 
       - name: Compilar APK armv7
         working-directory: app
-        run: flutter build apk --release --target-platform android-arm
+        run: |
+          for intento in 1 2 3; do
+            if flutter build apk --release --target-platform android-arm; then
+              exit 0
+            fi
+            echo "::warning::intento $intento falló (a veces Maven Central responde 429); reintento en 30 s"
+            sleep 30
+          done
+          echo "::error::el APK no compiló tras 3 intentos"
+          exit 1
 
       - name: Subir artefacto
         uses: actions/upload-artifact@v4

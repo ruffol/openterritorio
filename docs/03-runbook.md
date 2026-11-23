@@ -46,6 +46,10 @@ de actualizar), descarga, verifica el hash y abre el instalador.
 
 Sin ADB: `-NoPush`, copia los dos archivos y un `app.stamp` nuevo a mano.
 
+Si `flutter` no está en el PATH, añade `-Flutter "C:\ruta\flutter\bin\flutter.bat"`.
+El primer build tras cambiar la clave de firma debe instalarse una vez por USB
+(la actualización OTA exige la misma firma que la versión instalada).
+
 **Firma**: la actualización solo se instala si está firmada con la misma clave
 que la versión instalada. Para builds reproducibles usa
 `app/android/key.properties` (local) o los secrets de CI (ver README). Si usas
