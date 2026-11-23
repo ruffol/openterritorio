@@ -88,7 +88,10 @@ Todo el estado vive en `~/openterritorio/data/tactical.db` (WAL). El contrato
 
 - 200 conexiones WS configuradas; el hardware realista aguanta decenas con
   paquetes de ~50 bytes.
-- Node ocupa ~50–80 MB RSS; quedan ~1,3 GB disponibles.
+- **Medido**: 20 clientes × 1 posición/s durante 40 s → 15 200/15 200
+  difusiones sin pérdidas, Node con **55 MB RSS** y **29 % CPU**.
+- Práctico: ~20–30 clientes simultáneos; para 50 conviene bajar la frecuencia,
+  filtrar por cercanía o mover el backend a un servidor.
 - El cuello es la CPU Cortex-A7 y el Wi-Fi; el túnel añade ~100 ms.
 
 ## Siguiente fase (propuesta)

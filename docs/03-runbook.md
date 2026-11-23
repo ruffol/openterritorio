@@ -30,6 +30,21 @@ Despliegue manual del stamp (forzar reaplicación):
 adb shell "echo manual-$(Get-Date -Format s) > /sdcard/Download/openterritorio.stamp"
 ```
 
+## Control remoto por SSH
+
+`sshd` escucha en **8022** con autenticación solo por clave (sin contraseña).
+Usuario `u0_a187`; clave `backup/phone_ed25519` (no versionada).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\ssh.ps1 -Command "sv status openterritorio"
+
+# equivalente
+ssh -p 8022 -i .\backup\phone_ed25519 -o StrictHostKeyChecking=no u0_a187@192.168.100.3 "comando"
+```
+
+Si el teléfono no está en la LAN: `adb forward tcp:8022 tcp:8022` y conectar a
+`127.0.0.1`. `sshd` está habilitado en boot (`sv-enable sshd`).
+
 ## Estado y pruebas
 
 ```powershell

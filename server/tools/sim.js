@@ -27,6 +27,7 @@ const intervalMs = Math.max(500, Number(arg('interval', 5000)));
 const baseLat = Number(arg('lat', 19.2433));
 const baseLon = Number(arg('lon', -103.7247));
 const once = args.includes('--once');
+const quiet = args.includes('--quiet');
 
 if (!token) {
   console.error('Falta --token (o variable TOKEN).');
@@ -66,6 +67,7 @@ function connectPeer(peer) {
     });
     ws.on('message', (data) => {
       received += 1;
+      if (quiet) return;
       const packet = proto.decode(Buffer.from(data));
       console.log(
         `[par ${peer}] <- ${proto.PACKET_TYPE_NAME[packet.type]} de ${packet.sender_id}`,

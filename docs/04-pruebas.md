@@ -10,8 +10,10 @@ Fecha: **2026-11-23** (America/Mexico_City).
 | e2e LAN `http://192.168.100.3:8080` | teléfono | **10/10** |
 | e2e público `https://tienda.tlalchichi.xyz` | teléfono + Cloudflare | **10/10** |
 | Hot deploy (stamp → watcher → restart) | teléfono | OK; datos persistieron |
-| Panel y `/api/state` | LAN | OK (peers/events/alerts) |
+| Panel y `/api/state` | LAN y público | OK (pares/eventos/alertas) |
 | Tienda retirada; `cloudflared` intacto | teléfono | OK |
+| **Reinicio completo** | teléfono | `boot_completed` 30 s; URL pública a los **55 s**; datos intactos |
+| **Carga 20 clientes WS** | público | **15 200/15 200** difusiones, RSS **55 MB**, CPU **29 %** |
 
 Cobertura e2e: `healthz` público, 401 sin token, estado con token, dos clientes
 WS, broadcast de posición, deduplicación, evento, alerta por REST, broadcast de
@@ -47,7 +49,6 @@ node tools/sim.js --url wss://tienda.tlalchichi.xyz/ws --token <TOKEN> --peers 3
 
 ## Pendientes (no bloqueantes)
 
-- **Reinicio real del teléfono** para validar Termux:Boot de punta a punta (el
-  runsvdir existente ya arranca todos los servicios; falta la prueba física).
-- Prueba de carga con 20–50 clientes y medición de RSS/CPU.
-- Pruebas desde la app Flutter (fase siguiente) y desde transporte BLE/USB.
+- Pruebas desde la **app Flutter** (fase siguiente) y desde transporte BLE/USB.
+- Carga sostenida > 30 clientes y con paquetes de evento/alerta mezclados.
+- Validar la app en un segundo teléfono real (no solo el Q524).

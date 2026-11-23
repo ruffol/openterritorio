@@ -16,7 +16,17 @@ Inventario verificado por adb el **2026-11-23** (America/Mexico_City).
 | Root | **no** (`ro.secure=1`, bootloader bloqueado, sin `su`) |
 | Batería | 84 %, enchufado por USB, ~36 °C |
 | Red | Wi-Fi `192.168.100.3/24` (DHCP), internet OK |
+| Acceso | SSH `u0_a187@192.168.100.3:8022` con `backup/phone_ed25519` |
 | ADB | USB `VID_18D1`; el enlace se cae a veces y se recupera re-enumerando el dispositivo compuesto en Windows |
+
+## Arranque verificado
+
+Reinicio completo el **2026-11-23 11:14**: `sys.boot_completed` a los 30 s y
+`https://tienda.tlalchichi.xyz/healthz` respondiendo a los **55 s**, con los
+datos intactos (3 pares, 2 alertas, 1 evento). `Termux:Boot` +
+`~/.termux/boot/start-services.sh` + `runsvdir` arrancan los servicios solos.
+Si el teléfono tiene pantalla de bloqueo, hay que desbloquearlo una vez tras
+encenderlo (los servicios arrancan igualmente antes).
 
 ## Software ya instalado
 
@@ -34,7 +44,7 @@ Inventario verificado por adb el **2026-11-23** (America/Mexico_City).
 | `openterritorio` | run | backend Node en `:3000` |
 | `openterritorio-deploy` | run | watcher de despliegue (`watch.sh`) |
 | `cloudflared` | run | túnel existente; **intacto** |
-| `sshd`, `ssh-agent` | run | del setup anterior; se conservan |
+| `sshd`, `ssh-agent` | run | acceso por clave; `sshd` habilitado en boot |
 | `respaldo` | down | servicio previo inactivo; no se tocó |
 | ~~`tienda`~~ | eliminado | portal anterior retirado |
 | ~~`actualizador`~~, ~~`web-actualizador`~~ | eliminados | ya no aplican |
