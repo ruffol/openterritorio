@@ -30,6 +30,27 @@ Despliegue manual del stamp (forzar reaplicación):
 adb shell "echo manual-$(Get-Date -Format s) > /sdcard/Download/openterritorio.stamp"
 ```
 
+## Publicar actualización de la app (OTA)
+
+```powershell
+# Sube version: X.Y.Z+N en app/pubspec.yaml (N mayor que el instalado)
+powershell -ExecutionPolicy Bypass -File .\tools\publish-apk.ps1 -Notes "cambios"
+```
+
+El script compila (`flutter build apk`), calcula sha256, escribe
+`dist/app/latest.json` y empuja APK + manifiesto + `app.stamp` a
+`/sdcard/Download/openterritorio-app/`. El watcher (`termux/watch.sh`) los copia
+a `~/openterritorio/app/` en ≤ 10 s y el backend los sirve en
+`/api/app/latest` y `/api/app/download`. La app avisa al arrancar (y con el botón
+de actualizar), descarga, verifica el hash y abre el instalador.
+
+Sin ADB: `-NoPush`, copia los dos archivos y un `app.stamp` nuevo a mano.
+
+**Firma**: la actualización solo se instala si está firmada con la misma clave
+que la versión instalada. Para builds reproducibles usa
+`app/android/key.properties` (local) o los secrets de CI (ver README). Si usas
+la debug key, compila siempre desde el mismo PC.
+
 ## Control remoto por SSH
 
 `sshd` escucha en **8022** con autenticación solo por clave (sin contraseña).

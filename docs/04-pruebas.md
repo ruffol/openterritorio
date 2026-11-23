@@ -6,7 +6,7 @@ Fecha: **2026-11-23** (America/Mexico_City).
 
 | Prueba | Ámbito | Resultado |
 | --- | --- | --- |
-| `npm test` (14 casos) | PC | **14/14** |
+| `npm test` (16 casos) | PC | **16/16** |
 | e2e LAN `http://192.168.100.3:8080` | teléfono | **10/10** |
 | e2e público `https://tienda.tlalchichi.xyz` | teléfono + Cloudflare | **10/10** |
 | Hot deploy (stamp → watcher → restart) | teléfono | OK; datos persistieron |
@@ -54,7 +54,7 @@ Verificado el **2026-11-23** con Flutter 3.50.1, Dart 3.14, JDK 17 y SDK 36:
 | Prueba | Resultado |
 | --- | --- |
 | `flutter analyze` | sin incidencias |
-| `flutter test` (10 casos) | **10/10** |
+| `flutter test` (14 casos) | **14/14** |
 | `flutter build apk --release --target-platform android-arm` | **OK** |
 
 - Protocolo: codificación byte a byte contra vectores de `protobufjs` (posición,
@@ -63,9 +63,12 @@ Verificado el **2026-11-23** con Flutter 3.50.1, Dart 3.14, JDK 17 y SDK 36:
 - Estado: pares/eventos/alertas, deduplicación por `packet_id`, filtrado del eco
   propio y carga de `/api/state`.
 - Cliente: WebSocket y REST reales en loopback (token, frames binarios, 401).
+- OTA: metadata, descarga autenticada, verificación de sha256 (y rechazo si no
+  coincide), instalación inyectada y 404 sin publicación.
 - Extremo a extremo con el backend Node:
   `dart run tool/wire_check.dart http://127.0.0.1:3999 <token>` → posición
-  persistida, alerta recibida por WS y ACK registrado (`OK` en los tres pasos).
+  persistida, alerta recibida por WS, ACK registrado y APK de OTA descargado
+  con sha256 verificado (`OK` en los cuatro pasos).
 
 ## Pendientes (no bloqueantes)
 

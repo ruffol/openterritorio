@@ -69,7 +69,8 @@ Todo el estado vive en `~/openterritorio/data/tactical.db` (WAL). El contrato
   persiste y difunde (excepto ACK y excepto al emisor).
 - `server/src/db.js` — esquema y consultas; retención de 24 h para dedup y 7
   días para tracks.
-- `server/src/rest.js` — REST + panel; `/api/*` exige token.
+- `server/src/rest.js` — REST + panel; `/api/*` exige token y `/api/app/*`
+  sirve el APK publicado en `APP_DIR` para las actualizaciones OTA.
 - `server/public/` — panel HTML/JS sin dependencias externas.
 - `termux/watch.sh` — aplica `openterritorio.tar.gz` cuando cambia el stamp
   subido por adb; reinicia el servicio en ≤ 10 s.

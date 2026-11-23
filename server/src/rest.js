@@ -75,6 +75,45 @@ function serverPacket(type, payload) {
   };
 }
 
+/**
+ * Lee `latest.json` y el APK publicado en `appDir` (OTA). Devuelve null si no
+ * hay una actualización publicada o el archivo declarado no existe.
+ */
+function readAppRelease(appDir) {
+  let manifest;
+  try {
+    const raw = fs.readFileSync(path.join(appDir, 'latest.json'), 'utf8');
+    // Tolerar BOM si el manifiesto se generó con Windows PowerShell.
+    manifest = JSON.parse(raw.replace(/^\uFEFF/, ''));
+  } catch {
+    return null;
+  }
+  if (!manifest || typeof manifest !== 'object') return null;
+
+  const apkName = path.basename(String(manifest.apk || 'openterritorio.apk'));
+  if (!/^[\w .-]+\.apk$/i.test(apkName)) return null;
+
+  const apkPath = path.join(appDir, apkName);
+  let stat;
+  try {
+    stat = fs.statSync(apkPath);
+  } catch {
+    return null;
+  }
+  if (!stat.isFile()) return null;
+
+  return {
+    version: String(manifest.version || ''),
+    version_code: Number(manifest.version_code) || 0,
+    notes: String(manifest.notes || ''),
+    published_at: manifest.published_at || null,
+    sha256: String(manifest.sha256 || ''),
+    apk_name: apkName,
+    apk_path: apkPath,
+    size_bytes: stat.size,
+  };
+}
+
 function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, startedAt }) {
   const app = express();
   app.disable('x-powered-by');
@@ -228,6 +267,38 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
     });
   });
 
+  app.get('/api/app/latest', (req, res) => {
+    const release = readAppRelease(config.appDir);
+    if (!release) {
+      return res.status(404).json({ ok: false, error: 'sin actualización publicada' });
+    }
+    return res.json({
+      ok: true,
+      version: release.version,
+      version_code: release.version_code,
+      notes: release.notes,
+      published_at: release.published_at,
+      sha256: release.sha256,
+      apk_name: release.apk_name,
+      size_bytes: release.size_bytes,
+      url: '/api/app/download',
+      server_time_ms: Date.now(),
+    });
+  });
+
+  app.get('/api/app/download', (req, res, next) => {
+    const release = readAppRelease(config.appDir);
+    if (!release) {
+      return res.status(404).json({ ok: false, error: 'sin actualización publicada' });
+    }
+    res.set('Content-Type', 'application/vnd.android.package-archive');
+    res.set('Cache-Control', 'no-store');
+    res.set('Content-Disposition', `attachment; filename="${release.apk_name}"`);
+    return res.sendFile(release.apk_path, (err) => {
+      if (err && !res.headersSent) next(err);
+    });
+  });
+
   app.post('/api/packets', (req, res) => {
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
       return res.status(415).json({
@@ -268,4 +339,4 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
   return app;
 }
 
-module.exports = { createHttpApp, peerJSON, eventJSON, alertJSON };
+module.exports = { createHttpApp, peerJSON, eventJSON, alertJSON, readAppRelease };

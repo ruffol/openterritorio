@@ -37,6 +37,23 @@ jobs:
         working-directory: app
         run: flutter pub get
 
+      - name: Firma de release (opcional)
+        working-directory: app/android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > release.jks
+            printf 'storeFile=release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > key.properties
+            echo "APK firmado con la clave de release de los secrets."
+          else
+            echo "::warning::Sin ANDROID_KEYSTORE_BASE64: APK con la debug key del runner; no sirve para OTA entre ejecuciones."
+          fi
+
       - name: Analizar
         working-directory: app
         run: flutter analyze

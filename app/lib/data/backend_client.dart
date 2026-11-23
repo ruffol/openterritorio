@@ -230,6 +230,28 @@ class BackendClient {
     return decoded;
   }
 
+  /// Última versión publicada para OTA, o `null` si no hay ninguna.
+  Future<Map<String, dynamic>?> fetchAppVersion() async {
+    final response = await http
+        .get(
+          _restUri('/api/app/latest'),
+          headers: <String, String>{'Authorization': 'Bearer $token'},
+        )
+        .timeout(_requestTimeout);
+    if (response.statusCode == 404) return null;
+    if (response.statusCode == 401) {
+      throw BackendException('token rechazado (401)');
+    }
+    if (response.statusCode != 200) {
+      throw BackendException('HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is! Map<String, dynamic>) {
+      throw BackendException('respuesta inesperada de /api/app/latest');
+    }
+    return decoded;
+  }
+
   void _emitStatus(ConnectionStatus next) {
     if (_status == next || _statuses.isClosed) return;
     _status = next;

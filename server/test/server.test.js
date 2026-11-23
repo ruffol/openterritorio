@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -56,7 +57,7 @@ function ackPacket(senderId, ackedPacketId, packetId = 'c1b2c3d4e5f60708') {
   };
 }
 
-async function startServer() {
+async function startServer(overrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openterritorio-'));
   const rt = createRuntime({
     port: 0,
@@ -65,6 +66,7 @@ async function startServer() {
     logFile: path.join(dir, 'server.log'),
     token: TOKEN,
     logLevel: 'error',
+    ...overrides,
   });
   await rt.start(0, '127.0.0.1');
   const port = rt.server.address().port;
@@ -250,5 +252,66 @@ test('healthz es público y no filtra detalles', async () => {
     assert.equal(body.counts, undefined);
   } finally {
     await server.close();
+  }
+});
+
+test('OTA: publica metadata y descarga el APK con token', async () => {
+  const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openterritorio-ota-'));
+  const apk = Buffer.from('APK-DE-PRUEBA-0123456789');
+  const sha256 = crypto.createHash('sha256').update(apk).digest('hex');
+  fs.writeFileSync(path.join(appDir, 'openterritorio.apk'), apk);
+  fs.writeFileSync(
+    path.join(appDir, 'latest.json'),
+    JSON.stringify({
+      version: '0.2.0',
+      version_code: 2,
+      apk: 'openterritorio.apk',
+      sha256,
+      notes: 'prueba OTA',
+      published_at: '2026-11-23T00:00:00.000Z',
+    }),
+  );
+
+  const server = await startServer({ appDir });
+  try {
+    const latest = await getJson(server.url, '/api/app/latest');
+    assert.equal(latest.status, 200);
+    assert.equal(latest.body.version, '0.2.0');
+    assert.equal(latest.body.version_code, 2);
+    assert.equal(latest.body.size_bytes, apk.length);
+    assert.equal(latest.body.sha256, sha256);
+    assert.equal(latest.body.apk_name, 'openterritorio.apk');
+    assert.equal(latest.body.url, '/api/app/download');
+
+    const download = await fetch(`${server.url}/api/app/download`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    assert.equal(download.status, 200);
+    assert.match(download.headers.get('content-type'), /android\.package-archive/);
+    assert.deepEqual(Buffer.from(await download.arrayBuffer()), apk);
+
+    const unauthorized = await fetch(`${server.url}/api/app/latest`);
+    assert.equal(unauthorized.status, 401);
+  } finally {
+    await server.close();
+    fs.rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+test('OTA: 404 si no hay actualización publicada', async () => {
+  const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openterritorio-empty-'));
+  const server = await startServer({ appDir: emptyDir });
+  try {
+    const latest = await getJson(server.url, '/api/app/latest');
+    assert.equal(latest.status, 404);
+    assert.equal(latest.body.ok, false);
+
+    const download = await fetch(`${server.url}/api/app/download`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    assert.equal(download.status, 404);
+  } finally {
+    await server.close();
+    fs.rmSync(emptyDir, { recursive: true, force: true });
   }
 });

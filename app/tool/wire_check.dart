@@ -13,6 +13,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:openterritorio/data/backend_client.dart';
+import 'package:openterritorio/data/ota_service.dart';
 import 'package:openterritorio/protocol/tactical_packet.dart';
 
 const int _senderId = 424242;
@@ -148,6 +149,25 @@ Future<void> main(List<String> args) async {
       );
     }, 'el servidor registró el ACK de $_senderId');
     stdout.writeln('OK: ACK registrado para la alerta $alertHex');
+
+    // OTA: si hay APK publicado, descárgalo y verifica el sha256.
+    final cache = await Directory.systemTemp.createTemp('openterritorio-apk-');
+    final ota = OtaService(
+      client: client,
+      cacheDir: cache,
+      installer: (path) async => 'skip',
+    );
+    final update = await ota.check();
+    if (update == null) {
+      stdout.writeln('OTA: sin APK publicado (se omite).');
+    } else {
+      final file = await ota.download(update);
+      stdout.writeln(
+        'OK: APK v${update.version} (${update.versionCode}) descargado, '
+        '${file.lengthSync()} bytes, sha256 verificado',
+      );
+    }
+    await cache.delete(recursive: true);
   } on Object catch (error) {
     stderr.writeln('FALLO: $error');
     exitCode = 1;

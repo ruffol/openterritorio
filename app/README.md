@@ -17,6 +17,9 @@ Cliente táctico del backend del teléfono. Estado: **completa y compilada**.
 - `lib/ui/home_page.dart` — conexión y ajustes persistentes, GPS real
   (`geolocator`), envío adaptativo cada 5 s, ACK automático de alertas, botón
   **SIM** y alta de eventos en la posición propia.
+- `lib/data/ota_*.dart` + `lib/ui/update_dialog.dart` — **actualizaciones OTA**:
+  consulta `/api/app/latest`, descarga el APK con token, verifica el sha256 y lo
+  instala con `PackageInstaller` (canal nativo `openterritorio/ota`).
 - Material UI mediante el paquete oficial `material_ui` (en Flutter 3.50
   `package:flutter/material.dart` está deprecado).
 
@@ -25,7 +28,7 @@ Cliente táctico del backend del teléfono. Estado: **completa y compilada**.
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | sin incidencias |
-| `flutter test` | **10/10** |
+| `flutter test` | **14/14** |
 | `flutter build apk --release --target-platform android-arm` | **OK** |
 
 APK: `build/app/outputs/flutter-apk/app-release.apk` (**15,4 MB**, armv7; el Q524
@@ -82,6 +85,9 @@ flutter test
 - `test/backend_client_test.dart` — WebSocket y REST reales contra un backend de
   prueba en loopback: handshake con token, envío/recepción binaria y 401.
 
+- `test/ota_service_test.dart` — metadata, descarga autenticada, sha256
+  correcto/incorrecto, instalación inyectada y 404 sin publicación.
+
 ## Probar contra el backend real
 
 ```powershell
@@ -91,6 +97,23 @@ dart run tool/wire_check.dart http://127.0.0.1:3000 <TOKEN>
 Envía una posición, comprueba que aparece en `/api/state`, publica una alerta
 por REST, la recibe por WebSocket y responde con `ACK_CONFIRMATION` (verifica
 que el servidor lo registra). Es la misma ruta de código que usa la app.
+
+## Actualizaciones OTA
+
+La app consulta `GET /api/app/latest` al arrancar (y con el botón de la barra
+superior). Si `version_code` es mayor que el instalado muestra las notas, y al
+aceptar descarga `/api/app/download` con el token, **verifica el sha256** y abre
+el instalador del sistema.
+
+- La primera vez Android pide permitir "instalar apps desconocidas" para
+  OPENTERITORIO; la app abre ese ajuste si falta.
+- El APK debe estar firmado con la **misma clave** que la versión instalada.
+  `android/key.properties` (no versionado) activa la firma de release; sin él se
+  usa la debug key del PC. En CI se configuran los secrets
+  `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` y
+  `ANDROID_KEY_PASSWORD` (ver workflow).
+- Publicar: `tools\publish-apk.ps1` (compila, calcula sha256, sube APK y
+  `latest.json` al teléfono); el watcher los sirve en ≤ 10 s.
 
 ## Siguiente iteración
 

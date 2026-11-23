@@ -1,16 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:material_ui/material_ui.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/app_state.dart';
 import '../data/backend_client.dart';
+import '../data/ota_channel.dart';
+import '../data/ota_service.dart';
 import '../protocol/tactical_packet.dart';
 import 'board.dart';
+import 'update_dialog.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -42,6 +46,7 @@ class _HomePageState extends State<HomePage> {
   String _token = _defaultToken;
   int _senderId = 2000 + math.Random().nextInt(7000);
   int _simStep = 0;
+  bool _checkingUpdate = false;
 
   @override
   void initState() {
@@ -60,8 +65,19 @@ class _HomePageState extends State<HomePage> {
     setState(() {});
     _connect();
     unawaited(_startGps());
+    if (_token.isNotEmpty) {
+      // Comprobación de OTA en segundo plano, sin molestar al arrancar.
+      unawaited(
+        Future<void>.delayed(
+          const Duration(seconds: 4),
+          () => _checkUpdate(silent: true),
+        ),
+      );
+    }
     if (_token.isEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _openSettings(first: true));
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _openSettings(first: true),
+      );
     }
   }
 
@@ -104,7 +120,8 @@ class _HomePageState extends State<HomePage> {
 
   /// Aplica el paquete y confirma las alertas nuevas con un ACK.
   void _onPacket(TacticalPacket packet) {
-    final isNewAlert = packet.type == PacketType.serverAlert &&
+    final isNewAlert =
+        packet.type == PacketType.serverAlert &&
         packet.alert != null &&
         !_state.knowsAlert(packet.packetIdHex);
     _state.applyPacket(packet);
@@ -131,23 +148,21 @@ class _HomePageState extends State<HomePage> {
         return;
       }
       if (!await Geolocator.isLocationServiceEnabled()) return;
-      _positionSub = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
-          distanceFilter: 2,
-        ),
-      ).listen(
-        (position) {
-          _state.setOwn(
-            position.latitude,
-            position.longitude,
-            heading: position.heading.round(),
-            speedKmh: position.speed * 3.6,
-            altitudeM: position.altitude,
-          );
-        },
-        onError: (Object error) => _state.setError('GPS: $error'),
-      );
+      _positionSub =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.bestForNavigation,
+              distanceFilter: 2,
+            ),
+          ).listen((position) {
+            _state.setOwn(
+              position.latitude,
+              position.longitude,
+              heading: position.heading.round(),
+              speedKmh: position.speed * 3.6,
+              altitudeM: position.altitude,
+            );
+          }, onError: (Object error) => _state.setError('GPS: $error'));
     } catch (error) {
       _state.setError('GPS: $error');
     }
@@ -220,7 +235,9 @@ class _HomePageState extends State<HomePage> {
               TextField(
                 controller: idController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'ID de dispositivo'),
+                decoration: const InputDecoration(
+                  labelText: 'ID de dispositivo',
+                ),
               ),
               if (first)
                 const Padding(
@@ -305,7 +322,8 @@ class _HomePageState extends State<HomePage> {
                   ),
                   DropdownMenuItem<int>(value: 4, child: Text('Control')),
                 ],
-                onChanged: (value) => setDialogState(() => category = value ?? 0),
+                onChanged: (value) =>
+                    setDialogState(() => category = value ?? 0),
               ),
             ],
           ),
@@ -346,6 +364,103 @@ class _HomePageState extends State<HomePage> {
       );
     }
     noteController.dispose();
+  }
+
+  /// Comprueba si el backend publica una versión nueva y, si el operador
+  /// acepta, la descarga y lanza el instalador del sistema.
+  Future<void> _checkUpdate({bool silent = false}) async {
+    if (_checkingUpdate) return;
+    final client = _client;
+    if (client == null) {
+      if (!silent) {
+        _showSnack('Conecta con el backend para buscar actualizaciones.');
+      }
+      return;
+    }
+    _checkingUpdate = true;
+    try {
+      final local = await OtaChannel.currentVersion();
+      final cachePath = await OtaChannel.cacheDirectory();
+      final service = OtaService(
+        client: client,
+        cacheDir: Directory(cachePath ?? Directory.systemTemp.path),
+        installer: OtaChannel.install,
+      );
+      final update = await service.check();
+      if (!mounted) return;
+      if (update == null) {
+        if (!silent) _showSnack('No hay actualizaciones publicadas.');
+        return;
+      }
+      if (update.versionCode <= local.versionCode) {
+        if (!silent) {
+          _showSnack('Ya tienes la última versión (v${local.versionName}).');
+        }
+        return;
+      }
+
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Actualización v${update.version}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Instalada: v${local.versionName} (${local.versionCode})'),
+              const SizedBox(height: 4),
+              Text(
+                'Nueva: v${update.version} (${update.versionCode}) · '
+                '${_formatBytes(update.sizeBytes)}',
+              ),
+              if (update.notes.trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(update.notes.trim()),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Ahora no'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Descargar e instalar'),
+            ),
+          ],
+        ),
+      );
+      if (accepted != true || !mounted) return;
+
+      final result = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => OtaUpdateDialog(service: service, update: update),
+      );
+      if (!mounted || result == null) return;
+      if (result == 'ok') {
+        _showSnack('Instalador abierto: confirma la actualización.');
+      } else if (result == 'permission') {
+        _showSnack(
+          'Activa "Instalar apps desconocidas" para OPENTERITORIO '
+          'y vuelve a intentarlo.',
+        );
+      } else {
+        _state.setError(
+          result.startsWith('error:') ? result.substring(6) : result,
+        );
+      }
+    } on Object catch (error) {
+      _state.setError('Actualización: $error');
+    } finally {
+      _checkingUpdate = false;
+    }
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return 'tamaño desconocido';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   void _showSnack(String message) {
@@ -405,6 +520,11 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Buscar actualización',
+            onPressed: () => _checkUpdate(),
+            icon: const Icon(Icons.system_update_alt),
+          ),
           IconButton(
             tooltip: 'Refrescar estado',
             onPressed: () {

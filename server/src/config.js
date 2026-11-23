@@ -45,6 +45,8 @@ function buildConfig(overrides = {}) {
     token: process.env.TOKEN || '',
     dbPath: path.resolve(process.cwd(), process.env.DB_PATH || 'data/tactical.db'),
     logFile: path.resolve(process.cwd(), process.env.LOG_FILE || 'logs/server.log'),
+    // Carpeta con el APK publicado para OTA: latest.json + openterritorio.apk.
+    appDir: path.resolve(process.cwd(), process.env.APP_DIR || 'app'),
     maxClients: num(process.env.MAX_CLIENTS, 200),
     maxPayloadBytes: num(process.env.MAX_PAYLOAD_BYTES, 4096),
     seenTtlMs: num(process.env.SEEN_TTL_MS, 24 * 60 * 60 * 1000),

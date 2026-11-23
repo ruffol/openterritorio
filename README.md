@@ -27,7 +27,7 @@ de mapas, rastreo GPS y eventos multi-transporte corre **en el propio teléfono*
 - `server/public/` — panel de operador: pares, eventos y alertas.
 - `app/` — cliente Flutter (protocolo, WebSocket/REST, tablero, GPS, eventos).
 - `termux/` — bootstrap, instalación, watcher de despliegue y limpieza.
-- `tools/` — despliegue y salud desde Windows por adb.
+- `tools/` — despliegue del backend, salud, SSH y publicación de APK (OTA).
 - `docs/` — arquitectura, protocolo, runbook, pruebas y estado del teléfono.
 
 ## Arranque rápido (PC)
@@ -40,6 +40,34 @@ powershell -ExecutionPolicy Bypass -File .\tools\deploy.ps1 -Port 3000
 Despliegue = tests + tarball + `adb push` + watcher (≤ 10 s). El watcher extrae
 el tarball y reinicia el servicio; no borra `.env` ni `data/`.
 
+## Actualizaciones OTA
+
+La app se actualiza desde el propio backend, sin Play Store:
+
+1. `tools\publish-apk.ps1 -Notes "cambios"` compila el APK, escribe
+   `dist/app/latest.json` (versión, `version_code`, sha256, tamaño y notas) y
+   empuja APK + manifiesto al teléfono; el watcher los deja en
+   `~/openterritorio/app/`.
+2. El backend los sirve con token en `GET /api/app/latest` y
+   `GET /api/app/download`.
+3. La app compara su `versionCode` al arrancar (y con el botón de la barra),
+   muestra las notas, descarga el APK verificando el **sha256** y lanza el
+   instalador del sistema (`PackageInstaller`).
+
+```powershell
+# Sube la versión en app/pubspec.yaml (version: X.Y.Z+N) o pásala a mano:
+powershell -ExecutionPolicy Bypass -File .\tools\publish-apk.ps1 `
+  -Version 0.2.0 -BuildNumber 2 -Notes "tablero y ACK"
+```
+
+> **Firma**: para que Android acepte la actualización, todas las versiones deben
+> estar firmadas con la **misma clave**. Sin `app/android/key.properties` se usa
+> la debug key (sirve en el mismo PC, no entre runners de CI). En CI, define los
+> secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+> `ANDROID_KEY_ALIAS` y `ANDROID_KEY_PASSWORD`; el workflow firma con ellos.
+> En el teléfono hay que permitir "instalar apps desconocidas" para
+> OPENTERITORIO la primera vez (la app abre ese ajuste si falta).
+
 ## Pruebas
 
 ```powershell
@@ -51,7 +79,8 @@ node tools/sim.js --url wss://tienda.tlalchichi.xyz/ws --token <TOKEN> --peers 3
 
 ## Seguridad
 
-- Token obligatorio en `/api/*` y `/ws`; `/healthz` es público a propósito.
+- Token obligatorio en `/api/*` y `/ws` (incluida la descarga OTA del APK);
+  `/healthz` es público a propósito.
 - TLS lo termina Cloudflare; el origen no queda expuesto directamente.
 - Límites: 200 clientes WS, frames ≤ 4 KB, 20 fallos de token/min por IP.
 - El token no se versiona: vive en `~/openterritorio/.env` y en `backup/token.txt`.
@@ -72,7 +101,7 @@ Verificado con Flutter 3.50.1 / JDK 17 / Android SDK 36 / Gradle 9.5:
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | sin incidencias |
-| `flutter test` | **10/10** (protocolo, estado, WebSocket/REST reales en loopback) |
+| `flutter test` | **14/14** (protocolo, estado, WebSocket/REST reales y OTA) |
 | `flutter build apk --release --target-platform android-arm` | **OK** |
 
 Instrucciones en [`app/README.md`](app/README.md).

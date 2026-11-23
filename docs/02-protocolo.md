@@ -64,6 +64,8 @@ Todas las rutas `/api/*` requieren `Authorization: Bearer TOKEN` (o
 | GET | `/api/alerts/:packetId/acks` | acks de una alerta (hex de 16) |
 | GET | `/api/tracks/:senderId?since_ms=&limit=` | historial (máx. 20 000) |
 | POST | `/api/packets` | cuerpo `application/x-protobuf` (fallback HTTP) |
+| GET | `/api/app/latest` | versión publicada para OTA (o 404) |
+| GET | `/api/app/download` | APK publicado (sha256 en el manifiesto) |
 | GET | `/api/logs?lines=` | últimas líneas del log JSON |
 
 Cuerpos JSON de ejemplo:
@@ -82,6 +84,20 @@ Cuerpos JSON de ejemplo:
 4. Difundir a todos menos al emisor (ACK no se difunde).
 5. El cliente que recibe una alerta responde `ACK_CONFIRMATION` con el
    `packet_id` de la alerta.
+
+## OTA
+
+El servidor sirve `APP_DIR` (por defecto `~/openterritorio/app`):
+
+- `latest.json`: `version`, `version_code`, `apk`, `sha256`, `size_bytes`,
+  `notes`, `published_at`.
+- `openterritorio.apk`: el binario declarado en el manifiesto.
+
+`GET /api/app/latest` devuelve la metadata (o **404** si no hay publicación) y
+`GET /api/app/download` el APK; ambos exigen token. El cliente compara
+`version_code` con el instalado, descarga, verifica `sha256` y lanza
+`PackageInstaller`. El APK debe estar firmado con la misma clave que la versión
+instalada.
 
 ## Errores
 
