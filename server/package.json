@@ -1,0 +1,21 @@
+{
+  "name": "openterritorio-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend tactico offline-first (WebSocket + REST + SQLite) pensado para correr en Termux sobre el telefono Q524.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/",
+    "sim": "node tools/sim.js",
+    "e2e": "node tools/e2e.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "protobufjs": "^7.4.0",
+    "ws": "^8.18.0"
+  }
+}

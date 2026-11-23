@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b0f14" />
+  <title>OPENTERITORIO · panel</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="dot" id="dot" title="estado"></span>
+      <span>OPENTERITORIO</span>
+      <small>backend táctico</small>
+    </div>
+    <div class="meta">
+      <span id="clock">--:--:--</span>
+      <span id="origin"></span>
+      <button id="logout" type="button" hidden>Salir</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="cards">
+      <div class="card"><label>Pares</label><strong id="c-peers">0</strong></div>
+      <div class="card"><label>Eventos</label><strong id="c-events">0</strong></div>
+      <div class="card"><label>Alertas</label><strong id="c-alerts">0</strong></div>
+      <div class="card"><label>Puntos GPS</label><strong id="c-tracks">0</strong></div>
+      <div class="card"><label>WS conectados</label><strong id="c-ws">0</strong></div>
+    </section>
+
+    <section class="grid">
+      <div class="panel wide">
+        <h2>Pares en línea</h2>
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th><th>Latitud</th><th>Longitud</th><th>Vel.</th>
+                <th>Rumbo</th><th>Batería</th><th>Edad</th><th>Transporte</th>
+              </tr>
+            </thead>
+            <tbody id="peers"><tr><td colspan="8" class="empty">Sin datos todavía.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Nueva alerta</h2>
+        <form id="alert-form">
+          <label>Severidad
+            <select name="severity">
+              <option value="1">1 · Info</option>
+              <option value="2" selected>2 · Precaución</option>
+              <option value="3">3 · Crítica</option>
+            </select>
+          </label>
+          <div class="row">
+            <label>Latitud <input name="lat" type="number" step="0.0000001" required /></label>
+            <label>Longitud <input name="lon" type="number" step="0.0000001" required /></label>
+          </div>
+          <div class="row">
+            <label>Radio (m) <input name="radius_m" type="number" min="0" step="1" value="0" /></label>
+            <label>Título <input name="title" maxlength="64" placeholder="Zona de riesgo" /></label>
+          </div>
+          <button type="submit">Publicar alerta</button>
+        </form>
+
+        <h2>Nuevo evento</h2>
+        <form id="event-form">
+          <div class="row">
+            <label>Categoría <input name="category_id" type="number" min="0" step="1" value="1" /></label>
+            <label>Nota <input name="short_note" maxlength="64" placeholder="Punto de reunión" /></label>
+          </div>
+          <div class="row">
+            <label>Latitud <input name="lat" type="number" step="0.0000001" required /></label>
+            <label>Longitud <input name="lon" type="number" step="0.0000001" required /></label>
+          </div>
+          <button type="submit">Publicar evento</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <h2>Alertas recientes</h2>
+        <ul id="alerts" class="list"><li class="empty">Sin alertas.</li></ul>
+      </div>
+      <div class="panel">
+        <h2>Eventos recientes</h2>
+        <ul id="events" class="list"><li class="empty">Sin eventos.</li></ul>
+      </div>
+    </section>
+
+    <footer>
+      <span id="health">Comprobando…</span>
+      <span id="updated"></span>
+    </footer>
+  </main>
+
+  <div id="login" class="overlay">
+    <form id="login-form">
+      <h1>OPENTERITORIO</h1>
+      <p>Introduce el token del backend para abrir el panel.</p>
+      <input id="token" type="password" autocomplete="current-password" placeholder="token" required />
+      <button type="submit">Entrar</button>
+      <p class="err" id="login-err"></p>
+    </form>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

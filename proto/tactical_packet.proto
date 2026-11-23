@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+// Protocolo táctico binario del proyecto OPENTERITORIO.
+// Basado en la sección 5 del documento "Arquitectura_App_Mapas_Offline_MultiTransporte".
+//
+// Compatibilidad:
+//  - Mismos números de campo y tipos que la especificación original.
+//  - Extensión local: AckPayload (campo 9 del oneof) para confirmaciones
+//    dirigidas. Los clientes que no lo conozcan lo ignoran (proto3).
+
+package openterritorio;
+
+enum PacketType {
+  POSITION_UPDATE = 0;
+  USER_EVENT = 1;
+  SERVER_ALERT = 2;
+  ACK_CONFIRMATION = 3;
+}
+
+message TacticalPacket {
+  bytes packet_id = 1;       // 8 bytes (hash/UUIDv7 truncado) para deduplicación
+  uint32 sender_id = 2;      // 0 = servidor/panel
+  uint64 timestamp = 3;      // epoch en segundos
+  uint32 hop_limit = 4;      // saltos restantes para retransmisión mesh
+  PacketType type = 5;
+
+  oneof payload {
+    PositionPayload position = 6;
+    EventPayload event = 7;
+    AlertPayload alert = 8;
+    AckPayload ack = 9;      // extensión local
+  }
+}
+
+message PositionPayload {
+  sint32 latitude_e7 = 1;    // latitud * 1e7
+  sint32 longitude_e7 = 2;   // longitud * 1e7
+  int32 altitude_m = 3;      // metros
+  uint32 speed_cms = 4;      // cm/s
+  uint32 heading_deg = 5;    // 0..359
+  uint32 battery_pct = 6;    // 0..100
+}
+
+message EventPayload {
+  uint32 category_id = 1;
+  sint32 latitude_e7 = 2;
+  sint32 longitude_e7 = 3;
+  string short_note = 4;     // máx. 64 bytes UTF-8
+}
+
+message AlertPayload {
+  uint32 severity = 1;       // 1 info, 2 precaución, 3 crítica
+  sint32 latitude_e7 = 2;
+  sint32 longitude_e7 = 3;
+  uint32 radius_m = 4;       // 0 = punto exacto
+  string title = 5;          // máx. 64 bytes UTF-8
+}
+
+message AckPayload {
+  bytes acked_packet_id = 1; // 8 bytes del paquete confirmado
+}

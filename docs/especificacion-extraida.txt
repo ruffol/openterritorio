@@ -1,0 +1,154 @@
+
+########## PAGINA 1 ##########
+Plan de Desarrollo y Arquitectura Técnica
+Aplicación Android de Mapas Offline de Alta Resolución, Rastreo GPS en Tiempo Real, EventosGeorreferenciados y Comunicación Multi-Transporte (Internet, BLE, Radio LoRa, Mesh y APRS)
+1. Visión General y Principios de Diseño
+El sistema está diseñado bajo el paradigma Offline-First y Multi-Transporte para dispositivos Android. Laaplicación debe operar con total autonomía sin cobertura celular ni internet, manteniendo cartografíavectorial y satelital de alta resolución, compartiendo ubicaciones y eventos entre pares cercanos mediantehardware de radio/Bluetooth, y sincronizando bidireccionalmente con un servidor central cuando existaconectividad.
+Pilares Arquitectónicos
+Desacoplamiento del Transporte: La lógica de mapas, eventos y alertas desconoce si un datollegó por WebSockets (4G/Wi-Fi), Bluetooth Low Energy (BLE), puerto serial USB (LoRa/Meshtastic) o audio AFSK (radio VHF/UHF).Protocolo Binario Ultracompacto: Todos los mensajes se serializan en paquetes binarios(Protobuf) de ~25 a 45 bytes para garantizar transmisión exitosa en enlaces de bajo ancho debanda (LoRa / radio analógico).Idempotencia y Deduplicación: Cada paquete lleva un identificador único (UUIDv7 o Hashcompacto) y marca de tiempo para evitar duplicados cuando un mensaje rebota por múltiplesmedios (ej. malla local + servidor).
+•
+•
+•
+Arquitectura Técnica: App Android Offline-First & Multi-Transporte
+Página 1 de 9
+
+########## PAGINA 2 ##########
+2. Stack Tecnológico Completo
+Capa del SistemaTecnología / LibreríaJustificación Técnica
+Framework MóvilFlutter (Dart) + Módulos Nativos enKotlin (Android SDK)Permite interfaz fluida a 60/120 fps, ejecuciónparalela con Isolates y acceso directo sinrestricciones a APIs nativas de Android (USB-OTG, BLE, Foreground Services, Audio).Motor de MapasOfflineMapLibre Native (
+maplibre_gl
+)+ PMTiles / MBTilesCódigo abierto sin límites de descarga offlineni costos por usuario. Soporta estilosvectoriales dinámicos, rotación, inclinación3D y capas GeoJSON en tiempo real.Base de Datos LocalSQLite vía Drift (con extensiónSpatiaLite opcional)Persistencia transaccional rápida parahistorial GPS, caché de eventos, cola desincronización y registro de paquetesrecibidos (deduplicación).Serialización de DatosProtocol Buffers (
+protobuf
+)Reduce el tamaño de carga útil hasta un 80%frente a JSON, indispensable para enlacesLoRa y APRS.ComunicacionesLocales
+flutter_blue_plus
+(BLE),
+usb_serial
+(USB-OTG), AndroidNearby Connections, KotlinAudioTrack/RecordCobertura total de hardware: nodosMeshtastic/LoRa por USB o Bluetooth, redesMesh Wi-Fi Direct entre teléfonos y módemsde audio AFSK para radios analógicos.Backend en TiempoRealNode.js (Fastify / NestJS) o Go +WebSockets (
+ws
+/ Socket.io)Alta concurrencia para mantener miles deconexiones persistentes abiertas con bajalatencia.Memoria y MensajeríaRedis (GEO + Pub/Sub)Almacena la última ubicación en tiempo realen RAM, calcula radios de proximidad enmicrosegundos y enruta alertas entreinstancias del servidor.Base de Datos CentralPostgreSQL 16 + PostGIS +TimescaleDBConsultas geoespaciales avanzadas(geocercas, intersecciones, rutas) yalmacenamiento optimizado de seriestemporales para historiales largos de rastreo.Notificaciones PushFirebase Cloud Messaging (FCM -Data Messages)Despierta la app en segundo plano cuandohay internet para inyectar alertas críticas ymarcadores remotos enviados desde elservidor.
+Arquitectura Técnica: App Android Offline-First & Multi-Transporte
+Página 2 de 9
+
+########## PAGINA 3 ##########
+3. Arquitectura de Mapas Offline de Alta Resolución
+Para lograr alta resolución sin depender de internet, se utiliza un esquema híbrido de teselas vectoriales(calles, curvas de nivel, nombres, senderos) combinadas con teselas raster (imágenes satelitales omodelos de elevación) almacenadas localmente en el dispositivo.
+3.1 Formatos Recomendados
+PMTiles (Recomendado): Archivo único optimizado que contiene todo el mapa de una región. Permitelecturas mediante rangos de bytes directamente desde el almacenamiento interno o tarjeta SD sinsobrecargar SQLite.MBTiles: Base de datos SQLite que almacena teselas en formato
+.pbf
+(vector) o
+.webp/.jpg
+(satélite). Totalmente compatible de forma nativa con MapLibre.
+3.2 Pipeline de Generación de Cartografía Propia
+Para zonas específicas (ej. áreas urbanas, rurales o de montaña como el estado de Colima yalrededores), los mapas se generan previamente en servidor o estación de trabajo:Datos Vectoriales (Calles y Topografía): Descargar extractos de OpenStreetMap (
+.osm.pbf
+) desdeGeofabrik y compilarlos con Planetiler o Tilemaker hasta nivel de zoom 15–16 (nitidez infinita al hacerzoom hasta nivel 20+ por ser vectores).Curvas de Nivel y Relieve (Terreno): Procesar modelos digitales de elevación (DEM de NASA SRTMo INEGI) usando GDAL y convertirlos a teselas de relieve (Terrain-RGB) para visualización topográficaen 3D.Imágenes Satelitales de Alta Resolución: Empaquetar ortofotos o imágenes satelitales libres(Sentinel-2 / fuentes gubernamentales) comprimidas en formato WebP dentro de un contenedor
+.mbtiles
+o
+.pmtiles
+(niveles de zoom 12 a 18).Distribución a la App: Descarga por paquetes regionales (ej. "Zona Volcán / Norte", "Zona Costera")mediante gestor de descargas con reanudación en la app, o carga directa vía cable USB a la carpetaexterna de Android.
+3.3 Capas Dinámicas en MapLibre
+Sobre el mapa base offline se superponen tres fuentes GeoJSON en memoria que se actualizan en tiemporeal sin recargar el mapa:
+source_peers
+: Posición, rumbo (bearing), velocidad, nivel de batería y medio de conexión de otrosteléfonos/unidades.
+source_events
+: Eventos creados localmente o recibidos por red/radio (incidentes, puntos de reunión,obstáculos, recursos).
+source_server_alerts
+: Polígonos de peligro, geocercas dinámicas y marcadores prioritariosenviados desde el servidor central.
+•
+•
+1.
+2.
+3.
+4.
+•
+•
+•
+Arquitectura Técnica: App Android Offline-First & Multi-Transporte
+Página 3 de 9
+
+########## PAGINA 4 ##########
+4. Arquitectura Modular Multi-Transporte
+El núcleo de comunicaciones implementa un Enrutador de Mensajes (MessageRouter) conectado a unainterfaz abstracta (
+TransportAdapter
+). Cada tecnología física se encapsula en un adaptadorindependiente.
++-------------------------------------------------------------------+|                   CAPA DE PRESENTACIÓN (FLUTTER)                  ||   [ Mapa MapLibre ]   [ Gestor Eventos ]   [ Panel Alertas ]      |+---------------------------------+---------------------------------+                                  |+---------------------------------v---------------------------------+|                CAPA DE DOMINIO Y SINCRONIZACIÓN                   ||  [ Deduplicador UUID ]  <--->  [ Base de Datos Local (SQLite) ]   ||  [ Serializador Protobuf ] <---> [ Servicio GPS Background ]      |+---------------------------------+---------------------------------+                                  |+---------------------------------v---------------------------------+|                 ENRUTADOR MULTI-TRANSPORTE (BUS)                  ||         (Decide por qué canales enviar y retransmitir)            |+---+-------------+---------------+---------------+-------------+---+    |             |               |               |             |+---v---+     +---v---+       +---v---+       +---v---+     +---v---+|  WS   |     |  BLE  |       |  USB  |       |Mesh P2P|    | Audio ||4G/WiFi|     | LoRa  |       |Serial |       |Nearby |     | AFSK  |+-------+     +-------+       +-------+       +-------+     +-------+
+Arquitectura Técnica: App Android Offline-First & Multi-Transporte
+Página 4 de 9
+
+########## PAGINA 5 ##########
+4.1 Especificación de los Adaptadores de Transporte
+AdaptadorHardware / MedioImplementación Técnica en Android
+InternetTransportRed Celular (4G/5G), Wi-Fi,StarlinkCliente WebSocket persistente con reconexiónexponencial. Sincroniza lotes pendientes de SQLite alrecuperar señal y recibe alertas del servidor alinstante.BleRadioTransportNodos LoRa externos (ej.Heltec, T-Beam, Meshtastic)Conexión vía
+flutter_blue_plus
+leyendo yescribiendo en las características GATT del nodoradio sin cables.UsbSerialTransportRadios LoRa, placasESP32, TNCs por cableUSB-C OTGUso de
+usb_serial
+con filtros de dispositivo en
+AndroidManifest.xml
+(
+USB_DEVICE_ATTACHED
+) para conexiónautomática al enchufar el radio.NearbyMeshTransportTeléfonos Android cercanossin internet (hasta ~100m)API nativa Google Nearby Connections (estrategia
+P2P_CLUSTER
+), combinando Bluetooth y Wi-FiDirect para crear una red malla automática entreteléfonos.AfskAudioTransportRadios analógicos VHF/UHF (Walkie-Talkies /APRS)Módulo nativo en Kotlin que modula los paquetesProtobuf en tonos de audio Bell 202 (1200/2200 bps)hacia el jack de audio/USB-C y decodifica el audioentrante del radio.
+Arquitectura Técnica: App Android Offline-First & Multi-Transporte
+Página 5 de 9
+
+########## PAGINA 6 ##########
+5. Estructura del Protocolo Binario (Protobuf)
+Para que un mismo paquete viaje por WebSockets o por un enlace de radio de largo alcance, se define unesquema estricto en
+tactical_packet.proto
+:
+syntax = "proto3";enum PacketType {  POSITION_UPDATE = 0;  USER_EVENT = 1;  SERVER_ALERT = 2;  ACK_CONFIRMATION = 3;}message TacticalPacket {  bytes packet_id = 1;       // 8 bytes (hash único para deduplicación)  uint32 sender_id = 2;      // ID numérico del dispositivo/usuario  uint64 timestamp = 3;      // Epoch en segundos  uint32 hop_limit = 4;      // Saltos restantes para retransmisión Mesh (ej. 3)  PacketType type = 5;  oneof payload {    PositionPayload position = 6;    EventPayload event = 7;    AlertPayload alert = 8;  }}message PositionPayload {  sint32 latitude_e7 = 1;    // Latitud * 10^7 (4 bytes enteros, precisión ~1.1 cm)  sint32 longitude_e7 = 2;   // Longitud * 10^7 (4 bytes enteros)  int32 altitude_m = 3;      // Altitud en metros  uint32 speed_cms = 4;      // Velocidad en cm/s  uint32 heading_deg = 5;    // Rumbo 0-359  uint32 battery_pct = 6;    // Nivel de batería 0-100}message EventPayload {  uint32 category_id = 1;    // Código de ícono (peligro, recurso, punto control, etc.)  sint32 latitude_e7 = 2;  sint32 longitude_e7 = 3;  string short_note = 4;     // Texto breve (máx. 64 caracteres para radio)}message AlertPayload {  uint32 severity = 1;       // 1: Info, 2: Precaución, 3: Crítica (alarma sonora)  sint32 latitude_e7 = 2;  sint32 longitude_e7 = 3;  uint32 radius_m = 4;       // Radio de afectación en metros (0 si es punto exacto)  string title = 5;}
+Arquitectura Técnica: App Android Offline-First & Multi-Transporte
+Página 6 de 9
+
+########## PAGINA 7 ##########
+6. Flujos Críticos de Operación
+6.1 Ejecución Persistente en Segundo Plano (Android)
+Android detiene las aplicaciones en segundo plano para ahorrar batería. Para garantizar rastreo continuo yescucha permanente de Bluetooth/USB:Implementar un Android Foreground Service de tipo
+location|connectedDevice
+.Mantener una notificación permanente en la barra de estado mostrando estado de GPS y enlacesactivos.Solicitar exclusión de optimización de batería (
+REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+) durante elasistente inicial de configuración.Aplicar muestreo adaptativo de GPS: enviar posición cada 5 segundos si el dispositivo está enmovimiento (> 3 km/h) y cada 60 segundos si está detenido.
+6.2 Flujo de Alertas y Marcadores desde el Servidor
+Un operador o sistema automatizado crea una alerta o marcador en el panel web del servidor(guardado en PostgreSQL/PostGIS).El servidor publica el evento en Redis Pub/Sub.Los servidores WebSocket envían el
+TacticalPacket
+binario a todos los clientes conectados en esaregión.Si un teléfono tiene la app cerrada, el servidor envía un mensaje silencioso de alta prioridad vía Firebase Cloud Messaging (FCM).El teléfono recibe el paquete, lo guarda en SQLite, dibuja el marcador/polígono en MapLibre y disparauna alerta sonora/vibración según el nivel de
+severity
+.Puente Offline (Gateway): Si ese teléfono está conectado por radio LoRa o Mesh a otros teléfonos sininternet, retransmite automáticamente la alerta del servidor hacia la red local sin señal.
+•
+•
+•
+•
+1.
+2.
+3.
+4.
+5.
+6.
+Arquitectura Técnica: App Android Offline-First & Multi-Transporte
+Página 7 de 9
+
+########## PAGINA 8 ##########
+7. Estructura de Carpetas del Proyecto (Flutter)
+lib/├── core/│   ├── database/          # Esquemas SQLite (Drift) y repositorios locales│   ├── proto/             # Clases generadas desde tactical_packet.proto│   ├── services/          # ForegroundService, GPS Tracker, Notificaciones/Sonido│   └── utils/             # Conversores GeoJSON, cálculos de distancia y compresión├── transport/             # Capa modular de comunicaciones│   ├── transport_interface.dart│   ├── message_router.dart│   └── adapters/│       ├── websocket_adapter.dart│       ├── ble_radio_adapter.dart│       ├── usb_serial_adapter.dart│       ├── nearby_mesh_adapter.dart│       └── afsk_audio_adapter.dart├── features/│   ├── map/               # Controlador MapLibre, gestor de archivos PMTiles/MBTiles│   ├── tracking/          # Lógica de rastreo de pares y estelas (tracks)│   ├── events/            # Creación, edición y filtrado de eventos en mapa│   └── alerts/            # Recepción y gestión de alertas remotas del servidor└── main.dart
+Arquitectura Técnica: App Android Offline-First & Multi-Transporte
+Página 8 de 9
+
+########## PAGINA 9 ##########
+8. Hoja de Ruta de Implementación (Fases)
+FaseObjetivo PrincipalEntregables Técnicos
+Fase 1Núcleo Offline y Mapa BaseApp Flutter en Android con MapLibre cargando mapasvectoriales y satelitales locales (
+.mbtiles
+/
+.pmtiles
+).GPS en primer plano y base de datos SQLite local funcional.Fase 2Backend y Tiempo Real(Online)Servidor Node.js/Go + Redis + PostGIS. Implementación de
+MessageRouter
+con
+WebSocketAdapter
+. Rastreo envivo entre teléfonos, creación de eventos y envío de alertasdesde servidor + FCM.Fase 3Servicio Persistente y SyncImplementación de Android Foreground Service para rastreocon pantalla apagada. Cola de sincronización automática alperder y recuperar conexión celular.Fase 4Hardware Externo (BLE y USB)Desarrollo de
+BleRadioAdapter
+y
+UsbSerialAdapter
+para conectar módulos LoRa/Meshtastic y transmitir paquetes Protobuf sin coberturacelular.Fase 5Malla Local y Radio AnalógicoIntegración de Google Nearby Connections (malla Wi-FiDirect/BLE entre teléfonos) y módulo nativo Kotlin AFSKpara radios VHF/UHF convencionales.
+Arquitectura Técnica: App Android Offline-First & Multi-Transporte
+Página 9 de 9
