@@ -23,12 +23,13 @@ jobs:
           channel: stable
           cache: true
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Aceptar licencias e instalar SDK/NDK
+      - name: Instalar SDK/NDK
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f | head -n1)"
+          echo "sdkmanager=$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses > /dev/null || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
 
       - uses: gradle/actions/setup-gradle@v4
 
