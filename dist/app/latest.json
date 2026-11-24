@@ -1,9 +1,9 @@
 {
-    "version":  "0.4.3",
-    "version_code":  13,
+    "version":  "0.5.0",
+    "version_code":  14,
     "apk":  "openterritorio.apk",
-    "size_bytes":  103594005,
-    "sha256":  "ce2274719aed7048b1d7f553f6f0a9480206593ad495760b1dad4dad1d7adb8e",
-    "notes":  "Punto de SANGRE con emoji y anillo rojo de 500 m",
-    "published_at":  "2026-11-24T07:37:25.1620088Z"
+    "size_bytes":  103594001,
+    "sha256":  "a1977620c5dc7a26ba72ff597526446b18fa9c31a9604bd5ca5b38b7ddac50d6",
+    "notes":  "SANGRE con anillo rojo y azul; los puntos ahora se sirven desde el backend",
+    "published_at":  "2026-11-24T07:58:33.1890372Z"
 }

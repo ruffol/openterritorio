@@ -7,6 +7,7 @@ import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:openterritorio/data/app_state.dart';
+import 'package:openterritorio/data/landmarks.dart';
 import 'package:openterritorio/ui/board.dart';
 
 /// Fuente real para la previsualización: en `flutter test` el motor usa una
@@ -221,19 +222,24 @@ void main() {
 
     final radiusPx = 500 / viewport.metersPerPixel;
     expect(radiusPx, greaterThan(40));
+    expect(sangre.colors.length, 2, reason: 'anillo bicolor (rojo y azul)');
+
+    // Recorre la circunferencia: las franjas alternan rojo y azul.
+    var foundRed = false;
+    var foundBlue = false;
     final cx = size.width / 2;
     final cy = size.height / 2;
-    var foundRed = false;
-    for (var dx = radiusPx - 3; dx <= radiusPx + 3; dx++) {
-      for (final dy in <double>[-1, 0, 1]) {
-        final x = (cx + dx).round().clamp(0, size.width.toInt() - 1);
-        final y = (cy + dy).round().clamp(0, size.height.toInt() - 1);
-        final i = (y * size.width.toInt() + x) * 4;
-        final r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
-        if (r > 150 && r > g + 50 && r > b + 50) foundRed = true;
-      }
+    for (var step = 0; step < 32; step++) {
+      final angle = 2 * math.pi * step / 32;
+      final x = (cx + math.cos(angle) * radiusPx).round().clamp(0, size.width.toInt() - 1);
+      final y = (cy + math.sin(angle) * radiusPx).round().clamp(0, size.height.toInt() - 1);
+      final i = (y * size.width.toInt() + x) * 4;
+      final r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+      if (r > 150 && r > g + 50 && r > b + 50) foundRed = true;
+      if (b > 170 && b > r + 70 && b > g + 20) foundBlue = true;
     }
-    expect(foundRed, isTrue, reason: 'no se encontró el anillo rojo de 500 m');
+    expect(foundRed, isTrue, reason: 'falta la franja roja');
+    expect(foundBlue, isTrue, reason: 'falta la franja azul');
   });
 
   test('dibuja pares, eventos y alertas encima del mapa', () async {

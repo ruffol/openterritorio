@@ -159,6 +159,12 @@ class _HomePageState extends State<HomePage> {
         .fetchState()
         .then((json) => _state.applySnapshot(json))
         .catchError((Object error) => _state.setError('$error'));
+    target
+        .fetchLandmarks()
+        .then((list) => _state.applyLandmarks(list))
+        .catchError((Object _) {
+          // Sin enlace se mantienen los puntos locales de respaldo.
+        });
   }
 
   /// Aplica el paquete y confirma las alertas nuevas con un ACK.

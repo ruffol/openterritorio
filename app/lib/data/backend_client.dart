@@ -238,6 +238,28 @@ class BackendClient {
     return decoded;
   }
 
+  /// Puntos fijos configurados en el servidor (`/api/landmarks`).
+  Future<List<dynamic>> fetchLandmarks() async {
+    final response = await http
+        .get(
+          _restUri('/api/landmarks'),
+          headers: <String, String>{'Authorization': 'Bearer $token'},
+        )
+        .timeout(_requestTimeout);
+    if (response.statusCode == 401) {
+      throw BackendException('token rechazado (401)');
+    }
+    if (response.statusCode != 200) {
+      throw BackendException('HTTP ${response.statusCode}');
+    }
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is! Map<String, dynamic>) {
+      throw BackendException('respuesta inesperada de /api/landmarks');
+    }
+    final list = decoded['landmarks'];
+    return list is List ? list : <dynamic>[];
+  }
+
   /// Última versión publicada para OTA, o `null` si no hay ninguna.
   Future<Map<String, dynamic>?> fetchAppVersion() async {
     final response = await http

@@ -155,6 +155,71 @@ function readAppRelease(appDir) {
   };
 }
 
+const DEFAULT_LANDMARKS = Object.freeze([
+  {
+    name: 'UNIVERSIDAD',
+    lat: 19.31497222,
+    lon: -103.75877778,
+    emoji: '🎓',
+    radius_m: 50,
+    colors: ['#3DDC84'],
+  },
+  {
+    name: 'SANGRE',
+    lat: 19.25511111,
+    lon: -103.72936111,
+    emoji: '🩸',
+    radius_m: 500,
+    colors: ['#FF3B30', '#1E90FF'],
+  },
+]);
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/** Valida y normaliza la lista de puntos fijos que dibuja la app. */
+function sanitizeLandmarks(input) {
+  if (!Array.isArray(input)) throw new Error('landmarks debe ser una lista');
+  if (input.length > 200) throw new Error('demasiados puntos (máximo 200)');
+  return input.map((item, index) => {
+    const lat = Number(item.lat);
+    const lon = Number(item.lon);
+    const radius = Number(item.radius_m ?? item.radiusM ?? 0);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+      throw new Error(`punto ${index}: latitud inválida`);
+    }
+    if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
+      throw new Error(`punto ${index}: longitud inválida`);
+    }
+    if (!Number.isFinite(radius) || radius < 0 || radius > 50000) {
+      throw new Error(`punto ${index}: radio inválido (0–50000 m)`);
+    }
+    const rawColors = Array.isArray(item.colors) ? item.colors : ['#35C2FF'];
+    const colors = rawColors.map((color) => String(color));
+    if (colors.length < 1 || colors.length > 3 || !colors.every((c) => HEX_COLOR.test(c))) {
+      throw new Error(`punto ${index}: colores inválidos (1–3 en formato #RRGGBB)`);
+    }
+    return {
+      name: truncateUtf8(item.name ?? `Punto ${index + 1}`, 40),
+      lat,
+      lon,
+      emoji: truncateUtf8(item.emoji ?? '📍', 8),
+      radius_m: Math.round(radius),
+      colors,
+    };
+  });
+}
+
+/** Lee los puntos fijos del disco; si no hay archivo, usa los de fábrica. */
+function readLandmarks(config) {
+  try {
+    const raw = fs.readFileSync(config.landmarksFile, 'utf8').replace(/^\uFEFF/, '');
+    const parsed = JSON.parse(raw);
+    return sanitizeLandmarks(Array.isArray(parsed) ? parsed : parsed.landmarks);
+  } catch {
+    return DEFAULT_LANDMARKS.map((item) => ({ ...item, colors: [...item.colors] }));
+  }
+}
+
 function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, startedAt }) {
   const app = express();
   app.disable('x-powered-by');
@@ -311,6 +376,30 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
       since_ms: sinceMs,
       tracks: repo.listTracks(senderId, sinceMs, limit),
     });
+  });
+
+  /**
+   * Puntos fijos del tablero: se cambian sin tocar el APK.
+   * GET los devuelve; PUT los reemplaza (token) y los deja en `landmarks.json`.
+   */
+  app.get('/api/landmarks', (req, res) => {
+    res.json({ ok: true, landmarks: readLandmarks(config), server_time_ms: Date.now() });
+  });
+
+  app.put('/api/landmarks', (req, res) => {
+    try {
+      const incoming = req.body && req.body.landmarks ? req.body.landmarks : req.body;
+      const list = sanitizeLandmarks(incoming);
+      const file = config.landmarksFile;
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const tmp = `${file}.tmp`;
+      fs.writeFileSync(tmp, `${JSON.stringify({ landmarks: list }, null, 2)}\n`, 'utf8');
+      fs.renameSync(tmp, file);
+      log.info('landmarks actualizados', { count: list.length });
+      return res.json({ ok: true, landmarks: list });
+    } catch (err) {
+      return res.status(400).json({ ok: false, error: err.message });
+    }
   });
 
   app.get('/api/app/latest', (req, res) => {

@@ -478,6 +478,49 @@ test('OTA: la subida remota rechaza sha256 incorrecto y token ausente', async ()
   }
 });
 
+test('los puntos fijos se sirven y se pueden cambiar por API (sin tocar la app)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openterritorio-landmarks-'));
+  const server = await startServer({ landmarksFile: path.join(dir, 'landmarks.json') });
+  try {
+    const initial = await getJson(server.url, '/api/landmarks');
+    assert.equal(initial.status, 200);
+    assert.equal(initial.body.landmarks.length, 2);
+    const sangre = initial.body.landmarks.find((l) => l.name === 'SANGRE');
+    assert.equal(sangre.radius_m, 500);
+    assert.deepEqual(sangre.colors, ['#FF3B30', '#1E90FF']);
+
+    const updated = await getJson(server.url, '/api/landmarks', TOKEN, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        landmarks: [
+          { name: 'SANGRE', lat: 19.2551, lon: -103.7294, emoji: '🩸', radius_m: 800, colors: ['#FF0000', '#0000FF'] },
+        ],
+      }),
+    });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.landmarks[0].radius_m, 800);
+
+    const after = await getJson(server.url, '/api/landmarks');
+    assert.equal(after.body.landmarks.length, 1);
+    assert.equal(after.body.landmarks[0].radius_m, 800);
+    assert.equal(fs.existsSync(path.join(dir, 'landmarks.json')), true);
+
+    const bad = await getJson(server.url, '/api/landmarks', TOKEN, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ landmarks: [{ name: 'X', lat: 999, lon: 0 }] }),
+    });
+    assert.equal(bad.status, 400);
+
+    const anonymous = await fetch(`${server.url}/api/landmarks`);
+    assert.equal(anonymous.status, 401);
+  } finally {
+    await server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('un cliente que inunda el WebSocket se cierra con 1008', async () => {
   const server = await startServer({ wsRateMax: 5, wsRateWindowMs: 60000 });
   const client = await connect(server.wsUrl);

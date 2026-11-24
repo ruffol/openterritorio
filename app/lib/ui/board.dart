@@ -7,47 +7,6 @@ import 'package:material_ui/material_ui.dart';
 
 import '../data/app_state.dart';
 
-/// Punto fijo del tablero (no depende del backend ni de la red).
-class Landmark {
-  const Landmark({
-    required this.name,
-    required this.lat,
-    required this.lon,
-    required this.emoji,
-    required this.radiusM,
-    required this.color,
-  });
-
-  final String name;
-  final double lat;
-  final double lon;
-  final String emoji;
-  final double radiusM;
-  final Color color;
-}
-
-/// Referencias permanentes: se dibujan siempre, con su anillo de radio real.
-const List<Landmark> kLandmarks = <Landmark>[
-  // 19°18'53.9"N 103°45'31.6"W
-  Landmark(
-    name: 'UNIVERSIDAD',
-    lat: 19.31497222,
-    lon: -103.75877778,
-    emoji: '🎓',
-    radiusM: 50,
-    color: Color(0xFF3DDC84),
-  ),
-  // 19°15'18.4"N 103°43'45.7"W
-  Landmark(
-    name: 'SANGRE',
-    lat: 19.25511111,
-    lon: -103.72936111,
-    emoji: '🩸',
-    radiusM: 500,
-    color: Color(0xFFFF3B30),
-  ),
-];
-
 /// Capas de mapa offline disponibles.
 enum MapLayerId {
   oscuro('Oscuro (Esri)', 'assets/tiles/oscuro', '© Esri, HERE, Garmin, © OpenStreetMap'),
@@ -504,28 +463,47 @@ class BoardPainter extends CustomPainter {
     return (2 * math.atan(math.exp(n)) - math.pi / 2) * 180 / math.pi;
   }
 
-  /// Puntos fijos con anillo de radio real y emoji.
+  /// Puntos fijos (los sirve el backend) con su anillo de radio real.
   void _drawLandmarks(Canvas canvas, Size size) {
-    for (final place in kLandmarks) {
+    for (final place in state.landmarks) {
       final center = viewport.project(place.lat, place.lon, size);
-      if (center.dx < -80 || center.dx > size.width + 80) continue;
-      if (center.dy < -80 || center.dy > size.height + 80) continue;
+      if (center.dx < -140 || center.dx > size.width + 140) continue;
+      if (center.dy < -140 || center.dy > size.height + 140) continue;
 
       final radiusPx = place.radiusM / viewport.metersPerPixel;
       if (radiusPx >= 3) {
         canvas.drawCircle(
           center,
           radiusPx,
-          Paint()..color = place.color.withValues(alpha: 0.14),
+          Paint()..color = place.color.withValues(alpha: 0.10),
         );
-        canvas.drawCircle(
-          center,
-          radiusPx,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 2
-            ..color = place.color,
-        );
+        if (place.colors.length > 1) {
+          // Anillo a franjas: dos o más colores alternados (p. ej. rojo y azul).
+          const segments = 8;
+          final sweep = 2 * math.pi / segments;
+          final rect = Rect.fromCircle(center: center, radius: radiusPx);
+          for (var i = 0; i < segments; i++) {
+            canvas.drawArc(
+              rect,
+              i * sweep,
+              sweep,
+              false,
+              Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 3
+                ..color = place.colors[i % place.colors.length],
+            );
+          }
+        } else {
+          canvas.drawCircle(
+            center,
+            radiusPx,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 2
+              ..color = place.color,
+          );
+        }
       }
 
       _text(

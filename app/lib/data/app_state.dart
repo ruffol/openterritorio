@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../protocol/tactical_packet.dart';
+import 'landmarks.dart';
 
 int _asInt(Object? value, [int fallback = 0]) {
   if (value is int) return value;
@@ -176,6 +177,23 @@ class AppState extends ChangeNotifier {
 
   final Set<String> _eventIds = <String>{};
   final Set<String> _alertIds = <String>{};
+
+  /// Puntos fijos del tablero (por defecto los locales hasta que el backend
+  /// entregue su lista en `GET /api/landmarks`).
+  List<Landmark> landmarks = kLandmarks;
+
+  void applyLandmarks(List<dynamic> json) {
+    final parsed = <Landmark>[];
+    for (final item in json) {
+      if (item is! Map) continue;
+      final landmark = Landmark.fromJson(Map<String, dynamic>.from(item));
+      if (landmark.lat.abs() > 90 || landmark.lon.abs() > 180) continue;
+      parsed.add(landmark);
+    }
+    if (parsed.isEmpty) return;
+    landmarks = parsed;
+    notifyListeners();
+  }
 
   void setLink(LinkState value) {
     if (link == value) return;

@@ -47,6 +47,8 @@ function buildConfig(overrides = {}) {
     logFile: path.resolve(process.cwd(), process.env.LOG_FILE || 'logs/server.log'),
     // Carpeta con el APK publicado para OTA: latest.json + openterritorio.apk.
     appDir: path.resolve(process.cwd(), process.env.APP_DIR || 'app'),
+    // Puntos fijos del tablero (se pueden editar por API sin tocar la app).
+    landmarksFile: path.resolve(process.cwd(), process.env.LANDMARKS_FILE || 'landmarks.json'),
     maxClients: num(process.env.MAX_CLIENTS, 200),
     maxPayloadBytes: num(process.env.MAX_PAYLOAD_BYTES, 4096),
     // APK por OTA subido desde el PC (400 MB cubre de sobra el mapa completo).
