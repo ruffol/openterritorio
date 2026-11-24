@@ -1,28 +1,35 @@
 #!/usr/bin/env python3
-"""Descarga el mapa offline de TODO el estado de Colima como pirámide de teselas.
+"""Descarga mapas offline de Colima como pirámide de teselas, por capas.
 
-Fuente: Esri ArcGIS Online "Dark Gray Canvas" (sin clave, requiere atribución).
-Salida: app/assets/tiles/colima_<z>_<x>_<y>.jpg  (plano, una sola carpeta para
-que `flutter: assets: - assets/tiles/` las incluya todas).
+Capas:
+  oscuro  Esri Dark Gray Canvas      (tiles {z}/{y}/{x})
+  osm     OpenStreetMap estándar     (tiles {z}/{x}/{y})
+  inegi   INEGI Mapa Digital v6.1    (WMS EPSG:3857, sin clave)
 
-Uso: python tools/fetch-tiles.py [--workers 6] [--force]
+Salida: app/assets/tiles/<capa>/colima_<z>_<x>_<y>.jpg  (plano, ya en JPEG)
+
+Uso:
+  python tools/fetch-tiles.py --layer osm
+  python tools/fetch-tiles.py --layer inegi --workers 4
 """
 
 import argparse
+import io
 import math
 import os
 import sys
+import time
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-UA = "Mozilla/5.0 (Linux; Android 14; Q524) openterritorio/0.3.0 (+https://github.com/ruffol/openterritorio)"
-URL = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
-OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "assets", "tiles")
+from PIL import Image
 
-# Estado de Colima completo (incluye costa, volcán y los 10 municipios).
+UA = "openterritorio-offline-map/0.4.0 (+https://github.com/ruffol/openterritorio)"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TILES = os.path.join(ROOT, "app", "assets", "tiles")
+
 STATE = dict(west=-104.72, east=-103.44, south=18.64, north=19.62)
-
-# Parches de detalle fino (z16) en las zonas urbanas.
 PATCHES = [
     ("colima", dict(west=-103.79, east=-103.66, south=19.19, north=19.29)),
     ("villa", dict(west=-103.80, east=-103.70, south=19.24, north=19.30)),
@@ -32,8 +39,12 @@ PATCHES = [
     ("armeria", dict(west=-104.00, east=-103.92, south=18.90, north=18.97)),
 ]
 
-STATE_LEVELS = [10, 11, 12, 13, 14]
-PATCH_LEVELS = [15, 16]
+ESRI = "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+OSM = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
+INEGI = "https://gaia.inegi.org.mx/NLB/tunnel/wms/wms61"
+
+R = 6378137.0
+WORLD = 2 * math.pi * R
 
 
 def lon2x(lon, z):
@@ -53,74 +64,129 @@ def tiles_for(box, z):
             yield z, x, y
 
 
-def plan():
+def inegi_url(z, x, y):
+    size = WORLD / (2 ** z)
+    minx = -WORLD / 2 + x * size
+    maxx = minx + size
+    maxy = WORLD / 2 - y * size
+    miny = maxy - size
+    query = urllib.parse.urlencode(
+        {
+            "SERVICE": "WMS",
+            "VERSION": "1.1.1",
+            "REQUEST": "GetMap",
+            "LAYERS": "Servicio_WMS_MDM61",
+            "STYLES": "",
+            "FORMAT": "image/png",
+            "TRANSPARENT": "false",
+            "SRS": "EPSG:3857",
+            "BBOX": f"{minx:.2f},{miny:.2f},{maxx:.2f},{maxy:.2f}",
+            "WIDTH": 256,
+            "HEIGHT": 256,
+        }
+    )
+    return f"{INEGI}?{query}"
+
+
+def build_url(layer, z, x, y):
+    if layer == "oscuro":
+        return ESRI.format(z=z, x=x, y=y)
+    if layer == "osm":
+        return OSM.format(z=z, x=x, y=y)
+    if layer == "inegi":
+        return inegi_url(z, x, y)
+    raise SystemExit(f"capa desconocida: {layer}")
+
+
+def plan(layer):
+    """El estado completo hasta z13; el detalle urbano, en parches."""
     jobs = {}
-    for z in STATE_LEVELS:
+    state_levels = (10, 11, 12, 13, 14) if layer == "oscuro" else (10, 11, 12, 13)
+    for z in state_levels:
         for t in tiles_for(STATE, z):
             jobs[t] = "estado"
+
+    if layer == "oscuro":
+        patch_levels = (15, 16)
+    elif layer == "osm":
+        patch_levels = (14, 15)
+    else:  # inegi: ~5 s por tesela, solo detalle z14 en las cabeceras
+        patch_levels = (14,)
+
     for name, box in PATCHES:
-        for z in PATCH_LEVELS:
+        levels = patch_levels
+        if layer == "inegi" and name in ("comala", "armeria"):
+            levels = ()
+        for z in levels:
             for t in tiles_for(box, z):
                 jobs.setdefault(t, name)
     return jobs
 
 
+def fetch(job, layer, outdir):
+    z, x, y, path = job
+    url = build_url(layer, z, x, y)
+    for intento in range(5):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                raw = r.read()
+            if len(raw) < 500:
+                raise ValueError(f"tesela vacía ({len(raw)} bytes)")
+            if b"Access blocked" in raw or b"tile usage policy" in raw:
+                # Límite de los servidores voluntarios de OSM: esperar y reintentar.
+                time.sleep(5 + 3 * intento)
+                raise RuntimeError("bloqueado por política de uso")
+            im = Image.open(io.BytesIO(raw)).convert("RGB")
+            if im.size != (256, 256):
+                im = im.resize((256, 256))
+            im.save(path, "JPEG", quality=82, optimize=True)
+            if layer == "osm":
+                time.sleep(0.08)
+            return os.path.getsize(path)
+        except Exception:
+            if intento == 4:
+                return -1
+            time.sleep(0.5 * (intento + 1))
+    return -1
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--layer", required=True, choices=["oscuro", "osm", "inegi"])
     ap.add_argument("--workers", type=int, default=6)
-    ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
 
-    os.makedirs(OUT, exist_ok=True)
-    jobs = plan()
+    outdir = os.path.join(TILES, args.layer)
+    os.makedirs(outdir, exist_ok=True)
+    jobs = plan(args.layer)
     todo = []
     for (z, x, y) in sorted(jobs):
-        path = os.path.join(OUT, f"colima_{z}_{x}_{y}.jpg")
-        if args.force or not os.path.exists(path):
+        path = os.path.join(outdir, f"colima_{z}_{x}_{y}.jpg")
+        if not os.path.exists(path):
             todo.append((z, x, y, path))
 
-    print(f"teselas en el plan: {len(jobs)} | pendientes: {len(todo)}", flush=True)
+    print(f"[{args.layer}] plan {len(jobs)} | pendientes {len(todo)}", flush=True)
     if not todo:
+        files = os.listdir(outdir)
+        total = sum(os.path.getsize(os.path.join(outdir, f)) for f in files)
+        print(f"[{args.layer}] ya completo: {len(files)} teselas, {total/1048576:.1f} MB", flush=True)
         return 0
 
-    done = 0
-    failed = 0
-    total_bytes = 0
-
-    def fetch(job):
-        z, x, y, path = job
-        req = urllib.request.Request(URL.format(z=z, y=y, x=x), headers={"User-Agent": UA})
-        for intento in range(4):
-            try:
-                with urllib.request.urlopen(req, timeout=30) as r:
-                    data = r.read()
-                if len(data) < 400:  # tesela de error
-                    raise ValueError(f"tesela vacía ({len(data)} bytes)")
-                with open(path, "wb") as f:
-                    f.write(data)
-                return len(data)
-            except Exception as err:  # reintento con espera
-                if intento == 3:
-                    print(f"FALLO z{z}/{x}/{y}: {err}", flush=True)
-                    return -1
-                import time
-
-                time.sleep(0.4 * (intento + 1))
-        return -1
-
+    done = failed = got = 0
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for result in pool.map(fetch, todo):
+        for size in pool.map(lambda j: fetch(j, args.layer, outdir), todo):
             done += 1
-            if result > 0:
-                total_bytes += result
+            if size > 0:
+                got += size
             else:
                 failed += 1
-            if done % 200 == 0:
-                print(f"  {done}/{len(todo)}  {total_bytes / 1048576:.1f} MB", flush=True)
+            if done % 250 == 0:
+                print(f"  [{args.layer}] {done}/{len(todo)} {got/1048576:.1f} MB", flush=True)
 
-    files = [f for f in os.listdir(OUT) if f.endswith(".jpg")]
-    disk = sum(os.path.getsize(os.path.join(OUT, f)) for f in files)
-    print(f"\nlisto: {len(files)} teselas, {disk / 1048576:.1f} MB en {OUT} | fallos: {failed}", flush=True)
+    files = os.listdir(outdir)
+    total = sum(os.path.getsize(os.path.join(outdir, f)) for f in files)
+    print(f"[{args.layer}] listo: {len(files)} teselas, {total/1048576:.1f} MB | fallos {failed}", flush=True)
     return 0 if failed == 0 else 1
 
 

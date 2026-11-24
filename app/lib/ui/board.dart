@@ -7,170 +7,268 @@ import 'package:material_ui/material_ui.dart';
 
 import '../data/app_state.dart';
 
-/// Pirámide de teselas del mapa offline (todo el estado de Colima).
+/// Capas de mapa offline disponibles.
+enum MapLayerId {
+  oscuro('Oscuro (Esri)', 'assets/tiles/oscuro', '© Esri, HERE, Garmin, © OpenStreetMap'),
+  osm('Calles (OpenStreetMap)', 'assets/tiles/osm', '© OpenStreetMap contributors'),
+  inegi('INEGI (Mapa Digital)', 'assets/tiles/inegi', '© INEGI · Mapa Digital de México');
+
+  const MapLayerId(this.label, this.assetDir, this.attribution);
+
+  final String label;
+  final String assetDir;
+  final String attribution;
+}
+
+/// Estado de cámara del tablero: centro, zoom continuo y capa activa.
 ///
-/// Se guardan como assets planos (`assets/tiles/colima_<z>_<x>_<y>.jpg`) y se
-/// cargan bajo demanda con una caché LRU: el mapa puede pesar cientos de MB en
-/// disco sin que el teléfono tenga que decodificarlo entero en memoria.
+/// El zoom es la fuente de verdad del mapa (no el `InteractiveViewer`): así las
+/// teselas se piden en el nivel correcto al acercarse y las calles aparecen.
+class MapViewport extends ChangeNotifier {
+  MapViewport({
+    this.centerLat = 19.2433,
+    this.centerLon = -103.7247,
+    this.zoom = 15,
+    this.layer = MapLayerId.oscuro,
+  });
+
+  static const double minZoom = 10;
+  static const double maxZoom = 17;
+  static const int tileSize = 256;
+
+  double centerLat;
+  double centerLon;
+  double zoom;
+  MapLayerId layer;
+
+  /// Mientras el operador no mueva el mapa, la cámara sigue su GPS.
+  bool follow = true;
+
+  static double merc(double latDeg) =>
+      math.log(math.tan(math.pi / 4 + latDeg * math.pi / 360));
+
+  static double invMerc(double value) =>
+      (2 * math.atan(math.exp(value)) - math.pi / 2) * 180 / math.pi;
+
+  /// Píxeles por grado de longitud a un zoom dado.
+  static double scaleFor(double zoom) =>
+      tileSize * math.pow(2, zoom).toDouble() / 360;
+
+  /// Píxeles por unidad Mercator (Y).
+  static double mercScaleFor(double zoom) => scaleFor(zoom) * 180 / math.pi;
+
+  double get metersPerPixel =>
+      156543.03392 * math.cos(centerLat * math.pi / 180) / math.pow(2, zoom);
+
+  void goTo(double lat, double lon, {double? zoom, bool takeControl = false}) {
+    if (takeControl) follow = false;
+    centerLat = lat;
+    centerLon = lon;
+    if (zoom != null) zoom = zoom.clamp(minZoom, maxZoom);
+    notifyListeners();
+  }
+
+  void setLayer(MapLayerId id) {
+    if (id == layer) return;
+    layer = id;
+    notifyListeners();
+  }
+
+  void setZoom(double zoom) {
+    final next = zoom.clamp(minZoom, maxZoom);
+    if (next == zoom) return;
+    zoom = next;
+    notifyListeners();
+  }
+
+  /// Desplaza la cámara `dx, dy` píxeles de pantalla (dedo).
+  void panPixels(double dx, double dy, Size size) {
+    follow = false;
+    final scale = scaleFor(zoom);
+    final mercScale = mercScaleFor(zoom);
+    centerLon -= dx / scale;
+    centerLat = invMerc(merc(centerLat) + dy / mercScale);
+    notifyListeners();
+  }
+
+  /// Zoom multiplicativo manteniendo fijo el punto `focal` de la pantalla.
+  void zoomAt(Offset focal, double factor, Size size) {
+    if (!factor.isFinite || factor <= 0) return;
+    follow = false;
+    final before = geoAt(focal, size);
+    final next = (zoom + math.log(factor) / math.ln2).clamp(minZoom, maxZoom);
+    if (next == zoom) return;
+    zoom = next;
+    final after = geoAt(focal, size);
+    centerLon += before.lon - after.lon;
+    centerLat = invMerc(merc(centerLat) + (merc(before.lat) - merc(after.lat)));
+    notifyListeners();
+  }
+
+  ({double lat, double lon}) geoAt(Offset point, Size size) {
+    final scale = scaleFor(zoom);
+    final mercScale = mercScaleFor(zoom);
+    return (
+      lat: invMerc(merc(centerLat) - (point.dy - size.height / 2) / mercScale),
+      lon: centerLon + (point.dx - size.width / 2) / scale,
+    );
+  }
+
+  Offset project(double lat, double lon, Size size) => Offset(
+    size.width / 2 + (lon - centerLon) * scaleFor(zoom),
+    size.height / 2 - (merc(lat) - merc(centerLat)) * mercScaleFor(zoom),
+  );
+}
+
+/// Pirámide de teselas por capa, con caché LRU (memoria acotada).
 class OfflineTiles {
   OfflineTiles._();
 
   static const int minZoom = 10;
-  static const int maxZoom = 16;
-  static const int tileSize = 256;
-  static const int _capacity = 96;
+  static const int maxZoom = 17;
 
-  static const String attribution = '© Esri, HERE, Garmin, © OpenStreetMap';
+  /// Teselas decodificadas que se conservan (96 × 256² ≈ 25 MB).
+  static int capacity = 96;
 
-  static final LinkedHashMap<String, ui.Image> _images =
-      LinkedHashMap<String, ui.Image>();
+  static final LinkedHashMap<String, ui.Image> _images = LinkedHashMap();
   static final Set<String> _loading = <String>{};
+  static final Set<String> _missing = <String>{};
 
-  /// Cambia cada vez que entra una tesela nueva (el tablero se repinta).
+  /// Cambia cuando entra una tesela nueva (el tablero se repinta).
   static final ValueNotifier<int> revision = ValueNotifier<int>(0);
 
-  static String assetPath(int z, int x, int y) =>
-      'assets/tiles/colima_${z}_${x}_$y.jpg';
+  static String assetPath(MapLayerId layer, int z, int x, int y) =>
+      '${layer.assetDir}/colima_${z}_${x}_$y.jpg';
 
-  static String _key(int z, int x, int y) => '$z:$x:$y';
+  static String _key(MapLayerId layer, int z, int x, int y) => '${layer.name}:$z:$x:$y';
 
-  static ui.Image? get(int z, int x, int y) => _images[_key(z, x, y)];
+  static ui.Image? get(MapLayerId layer, int z, int x, int y) =>
+      _images[_key(layer, z, x, y)];
 
-  /// Pide una tesela una sola vez y avisa cuando llega.
-  static void request(int z, int x, int y) {
+  static void request(MapLayerId layer, int z, int x, int y) {
     if (z < minZoom || z > maxZoom) return;
-    final key = _key(z, x, y);
-    if (_images.containsKey(key) || _loading.contains(key)) return;
+    final key = _key(layer, z, x, y);
+    if (_images.containsKey(key) || _loading.contains(key) || _missing.contains(key)) {
+      return;
+    }
     _loading.add(key);
     rootBundle
-        .load(assetPath(z, x, y))
+        .load(assetPath(layer, z, x, y))
         .then((data) async {
           final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
           final frame = await codec.getNextFrame();
-          put(z, x, y, frame.image);
+          put(layer, z, x, y, frame.image);
         })
         .catchError((Object _) {
-          // Fuera de cobertura: no hay asset para esa tesela.
+          // Fuera de cobertura en esa capa/nivel: no se vuelve a intentar.
+          _missing.add(key);
         })
         .whenComplete(() => _loading.remove(key));
   }
 
-  /// Inserta una tesela en la caché (también lo usa la prueba de render).
-  static void put(int z, int x, int y, ui.Image image) {
-    final key = _key(z, x, y);
+  static void put(MapLayerId layer, int z, int x, int y, ui.Image image) {
+    final key = _key(layer, z, x, y);
     _images.remove(key)?.dispose();
     _images[key] = image;
-    while (_images.length > _capacity) {
-      final oldest = _images.keys.first;
-      _images.remove(oldest)?.dispose();
+    while (_images.length > capacity) {
+      _images.remove(_images.keys.first)?.dispose();
     }
     revision.value++;
   }
 
-  /// Tesela ya cargada de la misma zona en un nivel inferior (respaldo mientras
-  /// llega la definitiva, o donde no hay nivel alto).
-  static ui.Image? fallback(int z, int x, int y, {int levels = 3}) {
+  /// Tesela del mismo punto en un nivel inferior ya cargado.
+  static ui.Image? fallback(MapLayerId layer, int z, int x, int y, {int levels = 4}) {
     for (var dz = 1; dz <= levels; dz++) {
       final zz = z - dz;
       if (zz < minZoom) break;
       final factor = 1 << dz;
-      final img = get(zz, x ~/ factor, y ~/ factor);
+      final img = get(layer, zz, x ~/ factor, y ~/ factor);
       if (img != null) return img;
     }
     return null;
   }
 
-  static void seedForTest(int z, int x, int y, ui.Image image) => put(z, x, y, image);
-}
-
-/// Proyección Web Mercator (la misma de las teselas) y ventana visible.
-class _View {
-  _View({
-    required this.centerLat,
-    required this.centerLon,
-    required this.scale,
-    required this.size,
-  });
-
-  /// Centro geográfico del tablero.
-  final double centerLat;
-  final double centerLon;
-
-  /// Píxeles por grado de longitud en el centro.
-  final double scale;
-  final Size size;
-
-  static double _merc(double latDeg) =>
-      math.log(math.tan(math.pi / 4 + latDeg * math.pi / 360));
-
-  static double _invMerc(double value) =>
-      (2 * math.atan(math.exp(value)) - math.pi / 2) * 180 / math.pi;
-
-  /// Píxeles por unidad Mercator (la Y crece hacia el norte).
-  double get mercScale => scale * 180 / math.pi;
-
-  Offset project(double lat, double lon) => Offset(
-    size.width / 2 + (lon - centerLon) * scale,
-    size.height / 2 - (_merc(lat) - _merc(centerLat)) * mercScale,
-  );
-
-  double lonAt(double x) => centerLon + (x - size.width / 2) / scale;
-
-  double latAt(double y) => _invMerc(_merc(centerLat) - (y - size.height / 2) / mercScale);
-
-  /// Zoom de teselas que mejor coincide con la escala actual.
-  int get zoom =>
-      (math.log(scale * 360 / OfflineTiles.tileSize) / math.ln2).round().clamp(
-        OfflineTiles.minZoom,
-        OfflineTiles.maxZoom,
-      );
-
-  double metersPerPixel(int zoom) =>
-      156543.03392 * math.cos(centerLat * math.pi / 180) / (1 << zoom);
+  static void seedForTest(MapLayerId layer, int z, int x, int y, ui.Image image) =>
+      put(layer, z, x, y, image);
 }
 
 class TacticalBoard extends StatefulWidget {
-  const TacticalBoard({super.key, required this.state});
+  const TacticalBoard({super.key, required this.state, required this.viewport});
 
   final AppState state;
+  final MapViewport viewport;
 
   @override
   State<TacticalBoard> createState() => _TacticalBoardState();
 }
 
 class _TacticalBoardState extends State<TacticalBoard> {
+  Offset _lastFocal = Offset.zero;
+  double _lastScale = 1;
+
   @override
   void initState() {
     super.initState();
-    OfflineTiles.revision.addListener(_onTiles);
+    OfflineTiles.revision.addListener(_refresh);
+    widget.viewport.addListener(_refresh);
   }
 
-  void _onTiles() {
+  void _refresh() {
     if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    OfflineTiles.revision.removeListener(_onTiles);
+    OfflineTiles.revision.removeListener(_refresh);
+    widget.viewport.removeListener(_refresh);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: BoardPainter(widget.state),
-      child: const SizedBox.expand(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onScaleStart: (details) {
+            _lastFocal = details.localFocalPoint;
+            _lastScale = 1;
+          },
+          onScaleUpdate: (details) {
+            final delta = details.localFocalPoint - _lastFocal;
+            if (delta.distance > 0.2) {
+              widget.viewport.panPixels(delta.dx, delta.dy, size);
+            }
+            final factor = details.scale / _lastScale;
+            if ((factor - 1).abs() > 0.002) {
+              widget.viewport.zoomAt(details.localFocalPoint, factor, size);
+            }
+            _lastFocal = details.localFocalPoint;
+            _lastScale = details.scale;
+          },
+          onDoubleTapDown: (details) => _doubleTapAt = details.localPosition,
+          onDoubleTap: () {
+            final at = _doubleTapAt ?? size.center(Offset.zero);
+            widget.viewport.zoomAt(at, 2.0, size);
+          },
+          child: CustomPaint(
+            painter: BoardPainter(widget.state, widget.viewport),
+            child: SizedBox(width: size.width, height: size.height),
+          ),
+        );
+      },
     );
   }
+
+  Offset? _doubleTapAt;
 }
 
 class BoardPainter extends CustomPainter {
-  BoardPainter(this.state, {this.fontFamily});
+  BoardPainter(this.state, this.viewport, {this.fontFamily});
 
   final AppState state;
-
-  /// Familia tipográfica opcional (en pruebas se usa una fuente real para que
-  /// la previsualización sea legible; en el teléfono basta la del sistema).
+  final MapViewport viewport;
   final String? fontFamily;
 
   static const _bg = Color(0xFF0B0F14);
@@ -180,65 +278,13 @@ class BoardPainter extends CustomPainter {
   static const _ownColor = Color(0xFF3DDC84);
   static const _eventColor = Color(0xFFFFB020);
 
-  /// Centro por defecto: Colima capital.
-  static const double _defaultLat = 19.2433;
-  static const double _defaultLon = -103.7247;
-
-  /// Ventana mínima del tablero (~2 km): por debajo se pierde el contexto.
-  static const double _minSpanLat = 0.018;
-
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = _bg);
 
-    final points = <_Geo>[];
-    for (final peer in state.peers.values) {
-      points.add(_Geo(peer.lat, peer.lon));
-    }
-    for (final event in state.events) {
-      points.add(_Geo(event.lat, event.lon));
-    }
-    for (final alert in state.alerts) {
-      points.add(_Geo(alert.lat, alert.lon));
-    }
-    if (state.ownLat != null && state.ownLon != null) {
-      points.add(_Geo(state.ownLat!, state.ownLon!));
-    }
-
-    var centerLat = _defaultLat;
-    var centerLon = _defaultLon;
-    var spanLat = _minSpanLat;
-    var spanLon = _minSpanLat;
-
-    if (points.isNotEmpty) {
-      var minLat = points.first.lat;
-      var maxLat = minLat;
-      var minLon = points.first.lon;
-      var maxLon = minLon;
-      for (final point in points) {
-        minLat = math.min(minLat, point.lat);
-        maxLat = math.max(maxLat, point.lat);
-        minLon = math.min(minLon, point.lon);
-        maxLon = math.max(maxLon, point.lon);
-      }
-      centerLat = (minLat + maxLat) / 2;
-      centerLon = (minLon + maxLon) / 2;
-      spanLat = math.max(maxLat - minLat, _minSpanLat);
-      spanLon = math.max(maxLon - minLon, _minSpanLat);
-    }
-
-    final view = _View(
-      centerLat: centerLat,
-      centerLon: centerLon,
-      scale: math.min(size.width / (spanLon * 1.15), size.height / (spanLat * 1.15)),
-      size: size,
-    );
-    final zoom = view.zoom;
-
-    final painted = _drawTiles(canvas, size, view, zoom);
-
+    final painted = _drawTiles(canvas, size);
     if (!painted) {
-      _drawGrid(canvas, size, view);
+      _drawGrid(canvas, size);
       _text(
         canvas,
         'Sin mapa offline en esta zona',
@@ -249,13 +295,12 @@ class BoardPainter extends CustomPainter {
       );
     }
 
-    _drawPlaces(canvas, size, view);
+    _drawPlaces(canvas, size);
 
     for (final alert in state.alerts) {
-      final center = view.project(alert.lat, alert.lon);
+      final center = viewport.project(alert.lat, alert.lon, size);
       final color = _severityColor(alert.severity);
-      final metersPerPx = view.metersPerPixel(zoom);
-      final radiusPx = math.max(8.0, alert.radiusM / metersPerPx);
+      final radiusPx = math.max(8.0, alert.radiusM / viewport.metersPerPixel);
       canvas.drawCircle(center, radiusPx, Paint()..color = color.withValues(alpha: 0.10));
       canvas.drawCircle(
         center,
@@ -275,7 +320,7 @@ class BoardPainter extends CustomPainter {
     }
 
     for (final event in state.events) {
-      final center = view.project(event.lat, event.lon);
+      final center = viewport.project(event.lat, event.lon, size);
       final path = Path()
         ..moveTo(center.dx, center.dy - 7)
         ..lineTo(center.dx + 7, center.dy)
@@ -293,7 +338,7 @@ class BoardPainter extends CustomPainter {
     }
 
     for (final peer in state.peers.values) {
-      final center = view.project(peer.lat, peer.lon);
+      final center = viewport.project(peer.lat, peer.lon, size);
       canvas.save();
       canvas.translate(center.dx, center.dy);
       canvas.rotate(peer.headingDeg * math.pi / 180);
@@ -318,7 +363,7 @@ class BoardPainter extends CustomPainter {
     final ownLat = state.ownLat;
     final ownLon = state.ownLon;
     if (ownLat != null && ownLon != null) {
-      final center = view.project(ownLat, ownLon);
+      final center = viewport.project(ownLat, ownLon, size);
       final stroke = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2
@@ -329,31 +374,19 @@ class BoardPainter extends CustomPainter {
       _text(canvas, 'YO', center + const Offset(11, -18), _ownColor, size: 12, chip: true);
     }
 
-    _drawScale(canvas, size, view.metersPerPixel(zoom));
+    _drawScale(canvas, size);
     _drawAttribution(canvas, size);
-
-    if (points.isEmpty) {
-      _text(
-        canvas,
-        'Sin datos todavía. Conecta el backend o pulsa SIM.',
-        Offset(size.width * 0.05, size.height - 64),
-        _muted,
-        size: 12,
-        shadow: true,
-      );
-    }
+    _drawLayerBadge(canvas, size);
   }
 
-  /// Dibuja las teselas visibles del nivel elegido. Devuelve `false` si no hay
-  /// ninguna disponible (ni siquiera de respaldo) para esta ventana.
-  bool _drawTiles(Canvas canvas, Size size, _View view, int zoom) {
+  bool _drawTiles(Canvas canvas, Size size) {
+    final zoom = viewport.zoom.round().clamp(OfflineTiles.minZoom, OfflineTiles.maxZoom);
+    final layer = viewport.layer;
     final n = 1 << zoom;
     final lonPerTile = 360 / n;
 
-    final west = view.lonAt(0);
-    final east = view.lonAt(size.width);
-    final north = view.latAt(0);
-    final south = view.latAt(size.height);
+    final northWest = viewport.geoAt(Offset.zero, size);
+    final southEast = viewport.geoAt(Offset(size.width, size.height), size);
 
     int xFor(double lon) => ((lon + 180) / lonPerTile).floor().clamp(0, n - 1);
     int yFor(double lat) {
@@ -362,23 +395,24 @@ class BoardPainter extends CustomPainter {
       return y.floor().clamp(0, n - 1);
     }
 
-    final x0 = xFor(west);
-    final x1 = xFor(east);
-    final y0 = yFor(north);
-    final y1 = yFor(south);
+    final x0 = xFor(northWest.lon);
+    final x1 = xFor(southEast.lon);
+    final y0 = yFor(northWest.lat);
+    final y1 = yFor(southEast.lat);
 
     var painted = false;
     for (var x = x0; x <= x1; x++) {
       for (var y = y0; y <= y1; y++) {
-        final img = OfflineTiles.get(zoom, x, y);
-        final tileNorth = _tileLat(y, zoom);
-        final tileSouth = _tileLat(y + 1, zoom);
         final tileWest = x * lonPerTile - 180;
         final tileEast = (x + 1) * lonPerTile - 180;
-        final topLeft = view.project(tileNorth, tileWest);
-        final bottomRight = view.project(tileSouth, tileEast);
-        final dest = Rect.fromLTRB(topLeft.dx, topLeft.dy, bottomRight.dx, bottomRight.dy);
+        final tileNorth = _tileLat(y, zoom);
+        final tileSouth = _tileLat(y + 1, zoom);
+        final dest = Rect.fromPoints(
+          viewport.project(tileNorth, tileWest, size),
+          viewport.project(tileSouth, tileEast, size),
+        );
 
+        final img = OfflineTiles.get(layer, zoom, x, y);
         if (img != null) {
           canvas.drawImageRect(
             img,
@@ -390,50 +424,45 @@ class BoardPainter extends CustomPainter {
           continue;
         }
 
-        OfflineTiles.request(zoom, x, y);
+        OfflineTiles.request(layer, zoom, x, y);
 
-        // Respaldo: la misma zona en un nivel inferior ya cargado.
-        final parent = OfflineTiles.fallback(zoom, x, y);
-        if (parent != null) {
-          final dz = zoom - _levelOf(parent, zoom, x, y);
-          final factor = 1 << dz;
-          final subW = parent.width.toDouble() / factor;
-          final subH = parent.height.toDouble() / factor;
-          final src = Rect.fromLTWH((x % factor) * subW, (y % factor) * subH, subW, subH);
-          canvas.drawImageRect(
-            parent,
-            src,
-            dest,
-            Paint()..filterQuality = FilterQuality.low,
-          );
-          painted = true;
-        }
+        final parent = OfflineTiles.fallback(layer, zoom, x, y);
+        if (parent == null) continue;
+        final dz = _fallbackDepth(layer, zoom, x, y, parent);
+        if (dz <= 0) continue;
+        final factor = 1 << dz;
+        final subW = parent.width / factor;
+        final subH = parent.height / factor;
+        canvas.drawImageRect(
+          parent,
+          Rect.fromLTWH((x % factor) * subW, (y % factor) * subH, subW, subH),
+          dest,
+          Paint()..filterQuality = FilterQuality.low,
+        );
+        painted = true;
       }
     }
     return painted;
   }
 
-  /// Nivel del que provino el respaldo (para recortar el cuadrante correcto).
-  int _levelOf(ui.Image image, int zoom, int x, int y) {
-    for (var dz = 1; dz <= 3; dz++) {
+  int _fallbackDepth(MapLayerId layer, int zoom, int x, int y, ui.Image image) {
+    for (var dz = 1; dz <= 4; dz++) {
       final zz = zoom - dz;
       if (zz < OfflineTiles.minZoom) break;
       final factor = 1 << dz;
-      if (identical(OfflineTiles.get(zz, x ~/ factor, y ~/ factor), image)) {
-        return zz;
+      if (identical(OfflineTiles.get(layer, zz, x ~/ factor, y ~/ factor), image)) {
+        return dz;
       }
     }
-    return zoom;
+    return 0;
   }
 
   double _tileLat(int y, int zoom) {
     final n = math.pi - 2 * math.pi * y / (1 << zoom);
-    // atan(sinh(n)) sin depender de dart:math (que no expone sinh).
     return (2 * math.atan(math.exp(n)) - math.pi / 2) * 180 / math.pi;
   }
 
-  /// Etiquetas propias: el raster no se lee en 480 px, estas sí.
-  void _drawPlaces(Canvas canvas, Size size, _View view) {
+  void _drawPlaces(Canvas canvas, Size size) {
     const places = <(String, double, double)>[
       ('COLIMA', 19.2433, -103.7247),
       ('VILLA DE ÁLVAREZ', 19.2647, -103.7444),
@@ -444,54 +473,55 @@ class BoardPainter extends CustomPainter {
       ('VOLCÁN DE COLIMA', 19.5144, -103.6186),
     ];
     for (final (name, lat, lon) in places) {
-      final at = view.project(lat, lon);
+      final at = viewport.project(lat, lon, size);
       if (at.dx < -120 || at.dx > size.width + 120) continue;
       if (at.dy < -20 || at.dy > size.height + 20) continue;
       _text(canvas, name, at + const Offset(5, -5), _muted, size: 10, shadow: true);
     }
   }
 
-  void _drawGrid(Canvas canvas, Size size, _View view) {
-    const degrees = [0.5, 0.25, 0.1, 0.05, 0.02, 0.01];
-    final pxPerDegree = view.scale;
-    final step = degrees.firstWhere(
-      (d) => d * pxPerDegree > 60,
-      orElse: () => 0.01,
-    );
+  void _drawGrid(Canvas canvas, Size size) {
+    const degrees = [0.5, 0.25, 0.1, 0.05, 0.02, 0.01, 0.005];
+    final pxPerDegree = MapViewport.scaleFor(viewport.zoom);
+    final step = degrees.firstWhere((d) => d * pxPerDegree > 60, orElse: () => 0.005);
     final paint = Paint()
       ..color = _grid
       ..strokeWidth = 1;
 
-    final north = view.latAt(0);
-    final south = view.latAt(size.height);
-    for (var lat = (south / step).floorToDouble() * step; lat <= north; lat += step) {
-      final y = view.project(lat, view.centerLon).dy;
+    final northWest = viewport.geoAt(Offset.zero, size);
+    final southEast = viewport.geoAt(Offset(size.width, size.height), size);
+    for (var lat = (southEast.lat / step).floorToDouble() * step;
+        lat <= northWest.lat;
+        lat += step) {
+      final y = viewport.project(lat, viewport.centerLon, size).dy;
       if (y < 0 || y > size.height) continue;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
     }
-    final west = view.lonAt(0);
-    final east = view.lonAt(size.width);
-    for (var lon = (west / step).floorToDouble() * step; lon <= east; lon += step) {
-      final x = view.project(view.centerLat, lon).dx;
+    for (var lon = (northWest.lon / step).floorToDouble() * step;
+        lon <= southEast.lon;
+        lon += step) {
+      final x = viewport.project(viewport.centerLat, lon, size).dx;
       if (x < 0 || x > size.width) continue;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
+    _text(canvas, 'Rejilla ${step.toStringAsFixed(3)}°', const Offset(8, 8), _muted, size: 10);
+  }
 
+  void _drawLayerBadge(Canvas canvas, Size size) {
     _text(
       canvas,
-      'Rejilla ${step.toStringAsFixed(3)}°',
-      const Offset(8, 8),
+      viewport.layer.label,
+      Offset(8, size.height - 64),
       _muted,
-      size: 10,
+      size: 9,
+      shadow: true,
     );
   }
 
-  /// Atribución alineada a la derecha y medida antes de dibujar: es una
-  /// condición de la licencia, no puede quedar recortada.
   void _drawAttribution(Canvas canvas, Size size) {
     final painter = TextPainter(
       text: TextSpan(
-        text: OfflineTiles.attribution,
+        text: viewport.layer.attribution,
         style: TextStyle(
           color: _muted,
           fontSize: 8,
@@ -508,9 +538,10 @@ class BoardPainter extends CustomPainter {
     painter.dispose();
   }
 
-  void _drawScale(Canvas canvas, Size size, double metersPerPixel) {
+  void _drawScale(Canvas canvas, Size size) {
+    final metersPerPixel = viewport.metersPerPixel;
     final candidates = <double>[
-      50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000,
+      25, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000,
     ];
     var meters = candidates.last;
     for (final candidate in candidates) {
@@ -527,7 +558,9 @@ class BoardPainter extends CustomPainter {
     canvas.drawLine(origin, origin + Offset(px, 0), paint);
     canvas.drawLine(origin + Offset(0, -4), origin + Offset(0, 4), paint);
     canvas.drawLine(origin + Offset(px, -4), origin + Offset(px, 4), paint);
-    final label = meters >= 1000 ? '${(meters / 1000).toStringAsFixed(0)} km' : '${meters.toStringAsFixed(0)} m';
+    final label = meters >= 1000
+        ? '${(meters / 1000).toStringAsFixed(meters % 1000 == 0 ? 0 : 1)} km'
+        : '${meters.toStringAsFixed(0)} m';
     _text(canvas, label, origin + const Offset(0, -16), _muted, size: 10);
   }
 
@@ -594,11 +627,7 @@ class BoardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant BoardPainter oldDelegate) =>
-      oldDelegate.state != state || oldDelegate.fontFamily != fontFamily;
-}
-
-class _Geo {
-  const _Geo(this.lat, this.lon);
-  final double lat;
-  final double lon;
+      oldDelegate.state != state ||
+      oldDelegate.viewport != viewport ||
+      oldDelegate.fontFamily != fontFamily;
 }

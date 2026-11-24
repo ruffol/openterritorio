@@ -1,9 +1,9 @@
 {
-    "version":  "0.3.0",
-    "version_code":  9,
+    "version":  "0.4.0",
+    "version_code":  10,
     "apk":  "openterritorio.apk",
-    "size_bytes":  78219608,
-    "sha256":  "ba1573b3478032713d14a5e0df270877f2ee28c994d1dec6780b2cf352aba973",
-    "notes":  "Mapa offline de TODO el estado de Colima (6070 teselas z10-z16), atribucion y escala visibles, bateria real, SIM/GPS corregido",
-    "published_at":  "2026-11-24T04:11:36.6054859Z"
+    "size_bytes":  103594005,
+    "sha256":  "e20ed5e1cee558f8e56ceb32a92d68c0dec7ef6652eec955d6a442082a434c29",
+    "notes":  "Tres capas offline de todo Colima (Esri oscuro, OpenStreetMap, INEGI), zoom real por teselas y boton centrar en mi ubicacion",
+    "published_at":  "2026-11-24T05:45:19.0991604Z"
 }

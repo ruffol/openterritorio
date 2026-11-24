@@ -36,8 +36,7 @@ Future<void> _loadPreviewFont() async {
 int _tileX(double lon, int z) => ((lon + 180) / 360 * (1 << z)).floor();
 int _tileY(double lat, int z) {
   final rad = lat * math.pi / 180;
-  return ((1 - math.log(math.tan(rad) + 1 / math.cos(rad)) / math.pi) / 2 * (1 << z))
-      .floor();
+  return ((1 - math.log(math.tan(rad) + 1 / math.cos(rad)) / math.pi) / 2 * (1 << z)).floor();
 }
 
 Future<ui.Image> _decodeFile(String path) async {
@@ -45,17 +44,17 @@ Future<ui.Image> _decodeFile(String path) async {
   return (await codec.getNextFrame()).image;
 }
 
-/// Carga en la caché las teselas reales alrededor de un punto.
-Future<int> _seedTiles(double lat, double lon, {int radius = 3}) async {
+/// Carga en la caché las teselas reales alrededor de un punto, por capa.
+Future<int> _seedTiles(MapLayerId layer, double lat, double lon, {int radius = 3}) async {
   var seeded = 0;
   for (final z in <int>[13, 14, 15, 16]) {
     final xc = _tileX(lon, z);
     final yc = _tileY(lat, z);
     for (var dx = -radius; dx <= radius; dx++) {
       for (var dy = -radius; dy <= radius; dy++) {
-        final file = File('$_tileDir/colima_${z}_${xc + dx}_${yc + dy}.jpg');
+        final file = File('$_tileDir/${layer.name}/colima_${z}_${xc + dx}_${yc + dy}.jpg');
         if (!file.existsSync()) continue;
-        OfflineTiles.seedForTest(z, xc + dx, yc + dy, await _decodeFile(file.path));
+        OfflineTiles.seedForTest(layer, z, xc + dx, yc + dy, await _decodeFile(file.path));
         seeded++;
       }
     }
@@ -63,12 +62,11 @@ Future<int> _seedTiles(double lat, double lon, {int radius = 3}) async {
   return seeded;
 }
 
-Future<(ui.Image, List<int>)> _paintBoard(AppState state, Size size) async {
+Future<(ui.Image, List<int>)> _paintBoard(AppState state, MapViewport viewport, Size size) async {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
-  BoardPainter(state, fontFamily: _previewFont).paint(canvas, size);
-  final image = await (recorder.endRecording())
-      .toImage(size.width.toInt(), size.height.toInt());
+  BoardPainter(state, viewport, fontFamily: _previewFont).paint(canvas, size);
+  final image = await (recorder.endRecording()).toImage(size.width.toInt(), size.height.toInt());
   final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
   return (image, data!.buffer.asUint8List());
 }
@@ -76,9 +74,7 @@ Future<(ui.Image, List<int>)> _paintBoard(AppState state, Size size) async {
 double _nonBackgroundRatio(List<int> rgba) {
   var painted = 0;
   for (var i = 0; i < rgba.length; i += 4) {
-    final delta = (rgba[i] - 0x0B).abs() +
-        (rgba[i + 1] - 0x0F).abs() +
-        (rgba[i + 2] - 0x14).abs();
+    final delta = (rgba[i] - 0x0B).abs() + (rgba[i + 1] - 0x0F).abs() + (rgba[i + 2] - 0x14).abs();
     if (delta > 12) painted++;
   }
   return painted / (rgba.length / 4);
@@ -90,42 +86,84 @@ Future<void> _save(ui.Image image, String name) async {
   File('build/preview/$name').writeAsBytesSync(png!.buffer.asUint8List());
 }
 
+int? _maxZoomNear(MapLayerId layer, double lat, double lon) {
+  for (var z = 16; z >= OfflineTiles.minZoom; z--) {
+    final file = File('$_tileDir/${layer.name}/colima_${z}_${_tileX(lon, z)}_${_tileY(lat, z)}.jpg');
+    if (file.existsSync()) return z;
+  }
+  return null;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  setUpAll(_loadPreviewFont);
-
-  test('el mapa offline del estado de Colima se pinta (no un rectángulo negro)', () async {
-    const size = Size(400, 700);
-    final seeded = await _seedTiles(19.2433, -103.7247);
-    expect(seeded, greaterThan(4), reason: 'faltan teselas en $_tileDir');
-
-    final state = AppState()
-      ..selfId = 2001
-      ..setOwn(19.2433, -103.7247, heading: 90, speedKmh: 12);
-
-    final (image, rgba) = await _paintBoard(state, size);
-    final ratio = _nonBackgroundRatio(rgba);
-    expect(ratio, greaterThan(0.5), reason: 'el mapa debe cubrir el lienzo (fue $ratio)');
-    await _save(image, 'board_mapa.png');
+  setUpAll(() async {
+    await _loadPreviewFont();
+    // En pruebas se siembran varios niveles: la caché debe aguantarlos todos.
+    OfflineTiles.capacity = 4000;
   });
 
-  test('también pinta la costa (Manzanillo) con las teselas del estado', () async {
+  for (final layer in MapLayerId.values) {
+    test('la capa ${layer.name} pinta el mapa', () async {
+      const size = Size(400, 700);
+      final maxZoom = _maxZoomNear(layer, 19.2433, -103.7247);
+      if (maxZoom == null) {
+        markTestSkipped('teselas de ${layer.name} todavía no descargadas en $_tileDir');
+        return;
+      }
+      final seeded = await _seedTiles(layer, 19.2433, -103.7247, radius: 5);
+      expect(seeded, greaterThan(4));
+
+      final viewport = MapViewport(zoom: maxZoom.toDouble(), layer: layer);
+      final state = AppState()
+        ..selfId = 2001
+        ..setOwn(19.2433, -103.7247, heading: 90, speedKmh: 12);
+
+      final (image, rgba) = await _paintBoard(state, viewport, size);
+      final ratio = _nonBackgroundRatio(rgba);
+      expect(ratio, greaterThan(0.5), reason: 'el mapa debe cubrir el lienzo (fue $ratio)');
+      await _save(image, 'board_${layer.name}.png');
+    });
+  }
+
+  test('el zoom cambia el nivel de tesela (z13 país vs z16 calles)', () async {
     const size = Size(400, 700);
-    await _seedTiles(19.1138, -104.3267, radius: 2);
+    await _seedTiles(MapLayerId.oscuro, 19.2433, -103.7247, radius: 5);
+
+    final zoomedOut = MapViewport(zoom: 13);
+    final zoomedIn = MapViewport(zoom: 16);
+    final state = AppState()..selfId = 2001;
+
+    final (imgOut, rgbaOut) = await _paintBoard(state, zoomedOut, size);
+    final (imgIn, rgbaIn) = await _paintBoard(state, zoomedIn, size);
+    expect(_nonBackgroundRatio(rgbaOut), greaterThan(0.5));
+    expect(_nonBackgroundRatio(rgbaIn), greaterThan(0.5));
+    await _save(imgOut, 'board_zoom13.png');
+    await _save(imgIn, 'board_zoom16.png');
+  });
+
+  test('centrar en la posición propia deja el marcador en el centro', () async {
+    const size = Size(400, 700);
+    await _seedTiles(MapLayerId.osm, 19.1138, -104.3267, radius: 3);
+
+    final viewport = MapViewport(layer: MapLayerId.osm)
+      ..goTo(19.1138, -104.3267, zoom: 16);
+    final center = viewport.project(19.1138, -104.3267, size);
+    expect(center.dx, closeTo(size.width / 2, 0.5));
+    expect(center.dy, closeTo(size.height / 2, 0.5));
 
     final state = AppState()
       ..selfId = 2002
-      ..setOwn(19.1138, -104.3267, heading: 0, speedKmh: 0);
-
-    final (image, rgba) = await _paintBoard(state, size);
+      ..setOwn(19.1138, -104.3267);
+    final (image, rgba) = await _paintBoard(state, viewport, size);
     expect(_nonBackgroundRatio(rgba), greaterThan(0.5));
-    await _save(image, 'board_manzanillo.png');
+    await _save(image, 'board_centrado.png');
   });
 
   test('dibuja pares, eventos y alertas encima del mapa', () async {
     const size = Size(400, 700);
-    await _seedTiles(19.2433, -103.7247);
+    await _seedTiles(MapLayerId.oscuro, 19.2433, -103.7247);
 
+    final viewport = MapViewport(zoom: 15);
     final state = AppState()..selfId = 2001;
     state.applySnapshot(<String, dynamic>{
       'peers': [
@@ -140,7 +178,7 @@ void main() {
       ],
     });
 
-    final (image, rgba) = await _paintBoard(state, size);
+    final (image, rgba) = await _paintBoard(state, viewport, size);
     expect(_nonBackgroundRatio(rgba), greaterThan(0.5));
     await _save(image, 'board_operativo.png');
   });

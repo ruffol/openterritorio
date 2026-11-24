@@ -36,7 +36,7 @@ class _HomePageState extends State<HomePage> {
   StreamSubscription<ConnectionStatus>? _statusSub;
   StreamSubscription<Position>? _positionSub;
   Timer? _tickTimer;
-  final TransformationController _transformController = TransformationController();
+  final MapViewport _viewport = MapViewport();
 
   /// Se sustituye en `_bootstrap` por la configuración persistida.
   ConnectionSettings _settings = ConnectionSettings.fallback();
@@ -46,8 +46,40 @@ class _HomePageState extends State<HomePage> {
   int _ticks = 0;
 
   void _calibrate() {
-    _transformController.value = Matrix4.identity();
-    _showSnack('Mapa calibrado y centrado en Colima');
+    final lat = _state.ownLat;
+    final lon = _state.ownLon;
+    if (lat == null || lon == null) {
+      _viewport.goTo(19.2433, -103.7247, zoom: 14);
+      _viewport.follow = true;
+      _showSnack('Sin GPS todavía: centrado en Colima. Pulsa SIM o activa la ubicación.');
+      return;
+    }
+    _viewport.goTo(lat, lon, zoom: 16);
+    _viewport.follow = true;
+    _showSnack('Centrado en tu posición (${lat.toStringAsFixed(5)}, ${lon.toStringAsFixed(5)})');
+  }
+
+  Future<void> _pickLayer() async {
+    final chosen = await showDialog<MapLayerId>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Capa de mapa offline'),
+        children: [
+          for (final layer in MapLayerId.values)
+            ListTile(
+              leading: Icon(
+                layer == _viewport.layer
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+              ),
+              title: Text(layer.label),
+              subtitle: Text(layer.attribution, style: const TextStyle(fontSize: 10)),
+              onTap: () => Navigator.pop(context, layer),
+            ),
+        ],
+      ),
+    );
+    if (chosen != null) _viewport.setLayer(chosen);
   }
 
   int get _senderId => _settings.senderId;
@@ -175,6 +207,9 @@ class _HomePageState extends State<HomePage> {
               speedKmh: position.speed * 3.6,
               altitudeM: position.altitude,
             );
+            if (_viewport.follow) {
+              _viewport.goTo(position.latitude, position.longitude);
+            }
           }, onError: (Object error) => _state.setError('GPS: $error'));
     } catch (error) {
       _state.setError('GPS: $error');
@@ -189,6 +224,7 @@ class _HomePageState extends State<HomePage> {
       final lat = 19.2433 + math.sin(_simStep / 3) * 0.0009;
       final lon = -103.7247 + math.cos(_simStep / 4) * 0.0009;
       _state.setOwn(lat, lon, heading: (_simStep * 37) % 360, speedKmh: 15);
+      if (_viewport.follow) _viewport.goTo(lat, lon);
     }
 
     final lat = _state.ownLat;
@@ -396,7 +432,7 @@ class _HomePageState extends State<HomePage> {
     _packetSub?.cancel();
     _statusSub?.cancel();
     _positionSub?.cancel();
-    _transformController.dispose();
+    _viewport.dispose();
     _client?.dispose();
     _state.dispose();
     super.dispose();
@@ -442,13 +478,7 @@ class _HomePageState extends State<HomePage> {
           return Column(
             children: [
               Expanded(
-                child: InteractiveViewer(
-                  transformationController: _transformController,
-                  boundaryMargin: const EdgeInsets.all(double.infinity),
-                  minScale: 0.5,
-                  maxScale: 8.0,
-                  child: TacticalBoard(state: _state),
-                ),
+                child: TacticalBoard(state: _state, viewport: _viewport),
               ),
               StatusBar(state: _state),
             ],
@@ -461,9 +491,16 @@ class _HomePageState extends State<HomePage> {
         children: [
           FloatingActionButton.small(
             heroTag: 'calibrate',
-            tooltip: 'Calibrar / Centrar mapa',
+            tooltip: 'Centrar en mi ubicación',
             onPressed: _calibrate,
-            child: const Icon(Icons.gps_fixed),
+            child: const Icon(Icons.my_location),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.small(
+            heroTag: 'layers',
+            tooltip: 'Capa de mapa',
+            onPressed: _pickLayer,
+            child: const Icon(Icons.layers_outlined),
           ),
           const SizedBox(height: 12),
           FloatingActionButton.small(

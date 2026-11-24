@@ -99,30 +99,32 @@ WebSocket con reconexión exponencial, REST `/api/state`, tablero `CustomPainter
 GPS real (`geolocator`), eventos desde el campo, ACK de alertas y ajustes
 persistentes (`shared_preferences`).
 
-### Mapa offline (todo el estado de Colima)
+### Mapa offline: tres capas de todo el estado
 
-El tablero lleva una **pirámide de teselas** dentro del APK (sin red):
+El tablero lleva **tres pirámides de teselas** dentro del APK (sin red) y se
+cambian con el botón de capas:
 
-| Nivel | Cobertura | Uso |
+| Capa | Fuente | Atribución |
 | --- | --- | --- |
-| z10–z13 | Estado completo (costa, volcán, 10 municipios, ~130 × 95 km) | contexto y zoom amplio |
-| z14 | Estado completo con calles de cabeceras | uso normal |
-| z15–z16 | Parches de detalle urbano: Colima, Villa de Álvarez, Manzanillo, Tecomán, Comala y Armería | calle a calle en las ciudades |
+| Oscuro | Esri Dark Gray Canvas | © Esri, HERE, Garmin, © OpenStreetMap |
+| Calles | OpenStreetMap (servidor FOSSGIS) | © OpenStreetMap contributors |
+| INEGI | INEGI Mapa Digital v6.1 (WMS, EPSG:3857) | © INEGI · Mapa Digital de México |
 
-Son ~6 070 teselas JPEG (`app/assets/tiles/colima_<z>_<x>_<y>.jpg`, ~36 MB) que se
-cargan bajo demanda con una caché LRU de 96 teselas (~25 MB de RAM), así que el
-tamaño del mapa no crece en memoria: solo se decodifica lo visible. Si una
-tesela aún no está cargada se dibuja el nivel inferior como respaldo y se
-solicita la definitiva.
+Cada capa cubre el estado completo (z10–z14: costa, volcán, los 10 municipios) y
+añade parches de detalle urbano en Colima, Villa de Álvarez, Manzanillo,
+Tecomán, Comala y Armería.
 
-Se dibujan con proyección **Web Mercator** (la misma de las teselas) y encima van
-las etiquetas propias (COLIMA, VILLA DE ÁLVAREZ, MANZANILLO, TECOMÁN, ARMERÍA,
-COMALA, VOLCÁN DE COLIMA), la escala en m/km y la atribución
-*© Esri, HERE, Garmin, © OpenStreetMap*.
+Las teselas se cargan bajo demanda con caché LRU (96 teselas ≈ 25 MB de RAM) y,
+si falta el nivel pedido, se dibuja el inferior como respaldo mientras llega: el
+mapa puede pesar cientos de MB sin crecer en memoria.
 
-Para regenerarlo o ampliar la cobertura: `python tools/fetch-tiles.py`
-(fuente Esri Dark Gray Canvas, sin clave; añade niveles o parches editando
-`STATE`, `PATCHES` y `STATE_LEVELS`).
+**Navegación**: arrastrar desplaza, pellizcar/doble toque acerca (zoom continuo
+z10–z17) y el botón de mira centra la cámara en la posición propia a z16. Las
+teselas se piden en el nivel que toca a cada zoom, así que al acercarse aparecen
+las calles de verdad, no un raster ampliado.
+
+Para regenerar o ampliar: `python tools/fetch-tiles.py --layer osm` (o `inegi`),
+editando `STATE`, `PATCHES` y los niveles en el script.
 
 `app/test/board_render_test.dart` pinta el tablero a PNG con teselas reales
 (Colima y Manzanillo) y falla si más del 50 % del lienzo sigue siendo el color
@@ -141,7 +143,7 @@ Verificado con Flutter 3.50.1 / JDK 17 / Android SDK 36 / Gradle 9.5:
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | sin incidencias |
-| `flutter test` | **26/26** (protocolo, estado, ajustes, texto, WebSocket/REST reales, OTA y render del mapa con teselas) |
+| `flutter test` | **29/29** (protocolo, estado, ajustes, texto, WebSocket/REST reales, OTA y render de las 3 capas de mapa) |
 | `flutter build apk --release` (universal) | **OK** |
 
 Instrucciones en [`app/README.md`](app/README.md).
