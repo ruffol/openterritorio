@@ -149,6 +149,10 @@ function createRepository(db) {
     ),
     pruneSeen: db.prepare('DELETE FROM packets_seen WHERE seen_ms < ?'),
     pruneTracks: db.prepare('DELETE FROM tracks WHERE created_ms < ?'),
+    pruneEvents: db.prepare('DELETE FROM events WHERE created_ms < ?'),
+    pruneAlerts: db.prepare('DELETE FROM alerts WHERE created_ms < ?'),
+    pruneAcks: db.prepare('DELETE FROM acks WHERE created_ms < ?'),
+    prunePeers: db.prepare('DELETE FROM peers WHERE last_seen_ms < ?'),
     countPeers: db.prepare('SELECT COUNT(*) AS n FROM peers'),
     countEvents: db.prepare('SELECT COUNT(*) AS n FROM events'),
     countAlerts: db.prepare('SELECT COUNT(*) AS n FROM alerts'),
@@ -236,10 +240,23 @@ function createRepository(db) {
     );
   }
 
-  function prune(nowMs, seenTtlMs, trackTtlMs) {
+  function prune(nowMs, seenTtlMs, trackTtlMs, extra = {}) {
+    const eventTtlMs = extra.eventTtlMs ?? trackTtlMs;
+    const peerTtlMs = extra.peerTtlMs ?? trackTtlMs;
     const seen = statements.pruneSeen.run(nowMs - seenTtlMs);
     const tracks = statements.pruneTracks.run(nowMs - trackTtlMs);
-    return { seen: Number(seen.changes), tracks: Number(tracks.changes) };
+    const events = statements.pruneEvents.run(nowMs - eventTtlMs);
+    const alerts = statements.pruneAlerts.run(nowMs - eventTtlMs);
+    const acks = statements.pruneAcks.run(nowMs - eventTtlMs);
+    const peers = statements.prunePeers.run(nowMs - peerTtlMs);
+    return {
+      seen: Number(seen.changes),
+      tracks: Number(tracks.changes),
+      events: Number(events.changes),
+      alerts: Number(alerts.changes),
+      acks: Number(acks.changes),
+      peers: Number(peers.changes),
+    };
   }
 
   function counts() {

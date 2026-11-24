@@ -8,7 +8,16 @@ const { WebSocketServer, WebSocket } = require('ws');
  * - Solo frames binarios (protobuf).
  * - Ping/pong cada 30 s y descarte de clientes lentos.
  */
-function createHub({ server, auth, maxClients, maxPayloadBytes, log, onPacket }) {
+function createHub({
+  server,
+  auth,
+  maxClients,
+  maxPayloadBytes,
+  log,
+  onPacket,
+  rateMax = 60,
+  rateWindowMs = 1000,
+}) {
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: maxPayloadBytes,
@@ -59,6 +68,9 @@ function createHub({ server, auth, maxClients, maxPayloadBytes, log, onPacket })
       alive: true,
       senderId: null,
       received: 0,
+      rateStart: Date.now(),
+      rateCount: 0,
+      rateWarned: false,
     };
     clients.add(client);
 
@@ -69,6 +81,25 @@ function createHub({ server, auth, maxClients, maxPayloadBytes, log, onPacket })
     ws.on('message', (data, isBinary) => {
       if (!isBinary) {
         ws.close(1003, 'binary frames only');
+        return;
+      }
+      // Límite por cliente: un solo emisor no puede saturar SQLite ni la
+      // difusión a todos los pares (amplificación N-1).
+      const now = Date.now();
+      if (now - client.rateStart >= rateWindowMs) {
+        client.rateStart = now;
+        client.rateCount = 0;
+      }
+      client.rateCount += 1;
+      if (client.rateCount > rateMax) {
+        if (!client.rateWarned) {
+          client.rateWarned = true;
+          log.warn('ws rate limit exceeded', {
+            ip: client.ip,
+            limit: `${rateMax}/${rateWindowMs}ms`,
+          });
+        }
+        ws.close(1008, 'rate limit');
         return;
       }
       client.received += 1;

@@ -9,6 +9,7 @@ import 'package:material_ui/material_ui.dart';
 import '../data/app_state.dart';
 import '../data/backend_client.dart';
 import '../data/connection_settings.dart';
+import '../data/device_channel.dart';
 import '../data/ota_channel.dart';
 import '../data/ota_service.dart';
 import '../protocol/tactical_packet.dart';
@@ -41,6 +42,8 @@ class _HomePageState extends State<HomePage> {
   ConnectionSettings _settings = ConnectionSettings.fallback();
   int _simStep = 0;
   bool _checkingUpdate = false;
+  int _batteryPct = 100;
+  int _ticks = 0;
 
   void _calibrate() {
     _transformController.value = Matrix4.identity();
@@ -163,6 +166,8 @@ class _HomePageState extends State<HomePage> {
               distanceFilter: 2,
             ),
           ).listen((position) {
+            // En modo SIM manda la posición simulada: el GPS real no la pisa.
+            if (_state.simulating) return;
             _state.setOwn(
               position.latitude,
               position.longitude,
@@ -177,6 +182,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _tick() {
+    _ticks += 1;
+    if (_ticks % 6 == 1) unawaited(_refreshBattery());
     if (_state.simulating) {
       _simStep += 1;
       final lat = 19.2433 + math.sin(_simStep / 3) * 0.0009;
@@ -201,7 +208,7 @@ class _HomePageState extends State<HomePage> {
           altitudeM: _state.ownAltitudeM.round(),
           speedCms: (_state.ownSpeedKmh / 3.6 * 100).round(),
           headingDeg: _state.ownHeading,
-          batteryPct: 100,
+          batteryPct: _batteryPct,
         ),
       ),
     );
@@ -211,6 +218,13 @@ class _HomePageState extends State<HomePage> {
     return Uint8List.fromList(
       List<int>.generate(8, (_) => _random.nextInt(256)),
     );
+  }
+
+  /// Nivel de batería real del teléfono (vía BatteryManager).
+  Future<void> _refreshBattery() async {
+    final pct = await DeviceChannel.batteryPct();
+    if (!mounted || pct == null || pct < 0) return;
+    _batteryPct = pct.clamp(0, 100);
   }
 
   Future<void> _openSettings({bool first = false}) async {

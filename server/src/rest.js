@@ -54,6 +54,45 @@ function alertJSON(row) {
   };
 }
 
+/**
+ * Recorta un texto al límite en **bytes UTF-8** (no en unidades UTF-16),
+ * que es lo que exige el contrato Protobuf. Sin esto, "Punto de reunión…"
+ * con acentos se rechazaba con 400 al pasar de 64 bytes.
+ */
+function truncateUtf8(value, maxBytes = 64) {
+  const text = String(value ?? '');
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text;
+  let out = '';
+  let used = 0;
+  for (const char of text) {
+    const size = Buffer.byteLength(char, 'utf8');
+    if (used + size > maxBytes) break;
+    out += char;
+    used += size;
+  }
+  return out;
+}
+
+/** Últimas `maxLines` líneas de un archivo sin cargarlo entero en memoria. */
+function readTail(file, maxLines, maxBytes = 256 * 1024) {
+  const stat = fs.statSync(file);
+  const length = Math.min(stat.size, maxBytes);
+  const start = Math.max(0, stat.size - length);
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buffer = Buffer.alloc(length);
+    const read = fs.readSync(fd, buffer, 0, length, start);
+    return buffer
+      .subarray(0, read)
+      .toString('utf8')
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .slice(-maxLines);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function readCoords(body) {
   if (Number.isInteger(body.latitude_e7) && Number.isInteger(body.longitude_e7)) {
     return { latE7: body.latitude_e7, lonE7: body.longitude_e7 };
@@ -130,7 +169,12 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
   app.use(express.json({ limit: '64kb' }));
 
   function clientIp(req) {
-    return req.headers['cf-connecting-ip'] || req.socket.remoteAddress || 'unknown';
+    // `cf-connecting-ip` solo es fiable detrás de Cloudflare; con acceso
+    // directo a la LAN cualquiera puede rotarlo para esquivar el límite.
+    if (config.trustCfHeader && req.headers['cf-connecting-ip']) {
+      return String(req.headers['cf-connecting-ip']);
+    }
+    return req.socket.remoteAddress || 'unknown';
   }
   function bearer(req) {
     const header = req.headers.authorization || '';
@@ -195,7 +239,7 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
           category_id: Number.isInteger(body.category_id) ? body.category_id : 0,
           latitude_e7: coords.latE7,
           longitude_e7: coords.lonE7,
-          short_note: String(body.short_note ?? body.note ?? '').slice(0, 64),
+          short_note: truncateUtf8(body.short_note ?? body.note ?? '', 64),
         },
       });
       const result = ingest.handle(proto.encode(packet), null);
@@ -227,7 +271,7 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
           latitude_e7: coords.latE7,
           longitude_e7: coords.lonE7,
           radius_m: Math.max(0, Number(body.radius_m) || 0),
-          title: String(body.title || '').slice(0, 64),
+          title: truncateUtf8(body.title || '', 64),
         },
       });
       const result = ingest.handle(proto.encode(packet), null);
@@ -313,8 +357,7 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
   app.get('/api/logs', (req, res) => {
     const lines = Math.min(Number(req.query.lines) || 200, 2000);
     try {
-      const content = fs.readFileSync(config.logFile, 'utf8');
-      const tail = content.split(/\r?\n/).filter(Boolean).slice(-lines);
+      const tail = readTail(config.logFile, lines);
       return res.json({ ok: true, file: path.basename(config.logFile), lines: tail });
     } catch {
       return res.json({ ok: true, lines: [] });
@@ -339,4 +382,4 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
   return app;
 }
 
-module.exports = { createHttpApp, peerJSON, eventJSON, alertJSON, readAppRelease };
+module.exports = { createHttpApp, peerJSON, eventJSON, alertJSON, readAppRelease, truncateUtf8, readTail };

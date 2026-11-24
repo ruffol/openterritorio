@@ -82,7 +82,14 @@ node tools/sim.js --url wss://tienda.tlalchichi.xyz/ws --token <TOKEN> --peers 3
 - Token obligatorio en `/api/*` y `/ws` (incluida la descarga OTA del APK);
   `/healthz` es público a propósito.
 - TLS lo termina Cloudflare; el origen no queda expuesto directamente.
-- Límites: 200 clientes WS, frames ≤ 4 KB, 20 fallos de token/min por IP.
+- Límites: 200 clientes WS, frames ≤ 4 KB, 20 fallos de token/min por IP y
+  **60 paquetes/s por cliente** (`WS_RATE_MAX` / `WS_RATE_WINDOW_MS`); quien
+  inunda el socket se cierra con 1008.
+- Retención en el teléfono: `SEEN_TTL_MS` (24 h), `TRACK_TTL_MS` (7 días),
+  `EVENT_TTL_MS` (30 días, cubre eventos, alertas y ACK) y `PEER_TTL_MS`
+  (7 días). El log rota solo a los `LOG_MAX_BYTES` (2 MB, una generación).
+- `TRUST_CF_HEADER=0` ignora `cf-connecting-ip` cuando se entra por LAN, donde
+  esa cabecera se puede falsear para esquivar el límite de fallos de token.
 - El token no se versiona: vive en `~/openterritorio/.env` y en `backup/token.txt`.
 
 ## Fase B · app Flutter (completa)
@@ -91,6 +98,24 @@ node tools/sim.js --url wss://tienda.tlalchichi.xyz/ws --token <TOKEN> --peers 3
 WebSocket con reconexión exponencial, REST `/api/state`, tablero `CustomPainter`,
 GPS real (`geolocator`), eventos desde el campo, ACK de alertas y ajustes
 persistentes (`shared_preferences`).
+
+### Mapa offline
+
+El tablero lleva dos capas raster georreferenciadas dentro del APK (sin red):
+
+| Capa | Cobertura | Asset |
+| --- | --- | --- |
+| Detalle urbano (z15) | 6.9 × 6.9 km, Colima centro + Villa de Álvarez | `assets/map/colima_z15.jpg` (441 KB) |
+| Contexto regional (z13) | 18.5 × 18.5 km | `assets/map/colima_z13.jpg` (84 KB) |
+
+Se dibujan con `drawImageRect` sobre la misma proyección que pares, eventos y
+alertas, y las etiquetas propias (COLIMA CENTRO, VILLA DE ÁLVAREZ, COMALA) van
+encima para que se lean en 480 px. Atribución en pantalla: *© Esri, HERE,
+Garmin, © OpenStreetMap*. Si el tablero sale de esa cobertura muestra la rejilla
+y el aviso "Sin mapa offline en esta zona".
+
+`app/test/board_render_test.dart` pinta el tablero a PNG y falla si más del 50 %
+del lienzo sigue siendo el color de fondo: un mapa invisible no puede pasar.
 
 > Requiere **Android 14 (API 34) o superior** (`minSdk = 34`, `targetSdk = 36`).
 > La capa nativa usa directamente las APIs obligatorias en esa versión
@@ -105,7 +130,7 @@ Verificado con Flutter 3.50.1 / JDK 17 / Android SDK 36 / Gradle 9.5:
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | sin incidencias |
-| `flutter test` | **23/23** (protocolo, estado, ajustes, texto, WebSocket/REST reales y OTA) |
+| `flutter test` | **25/25** (protocolo, estado, ajustes, texto, WebSocket/REST reales, OTA y render del mapa) |
 | `flutter build apk --release` (universal) | **OK** |
 
 Instrucciones en [`app/README.md`](app/README.md).

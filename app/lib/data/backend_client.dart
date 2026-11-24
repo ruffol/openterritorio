@@ -119,7 +119,16 @@ class BackendClient {
       return;
     }
 
-    final channel = WebSocketChannel.connect(_wsUri);
+    // `connect` puede lanzar de forma síncrona con una URL inválida: eso no
+    // debe escapar como error de zona, sino tratarse como un fallo de enlace.
+    late final WebSocketChannel channel;
+    try {
+      channel = WebSocketChannel.connect(_wsUri);
+    } catch (_) {
+      _emitStatus(ConnectionStatus.disconnected);
+      _scheduleReconnect();
+      return;
+    }
     _channel = channel;
     try {
       await channel.ready;
@@ -130,7 +139,6 @@ class BackendClient {
       }
       return;
     }
-
     if (_disposed || generation != _generation) {
       unawaited(channel.sink.close());
       return;

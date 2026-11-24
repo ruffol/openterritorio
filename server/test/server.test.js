@@ -307,11 +307,118 @@ test('OTA: 404 si no hay actualización publicada', async () => {
     assert.equal(latest.body.ok, false);
 
     const download = await fetch(`${server.url}/api/app/download`, {
-      headers: { Authorization: `Bearer ${TOKEN}` },
+      headers: { Authorization: 'Bearer ' + TOKEN },
     });
     assert.equal(download.status, 404);
   } finally {
     await server.close();
     fs.rmSync(emptyDir, { recursive: true, force: true });
+  }
+});
+
+test('POST /api/events recorta por bytes UTF-8, no por unidades UTF-16', async () => {
+  const server = await startServer();
+  try {
+    // 51 caracteres con acentos = 53 bytes; con el corte anterior por
+    // `slice(0, 64)` una nota de este estilo pasaba el límite de 64 bytes del
+    // contrato y el endpoint respondía 400 "short_note exceeds 64 bytes".
+    const long = 'Punto de reunión en el jardín principal de Villa de Álvarez, evacuar';
+    assert.ok(Buffer.byteLength(long, 'utf8') > 64);
+
+    const created = await getJson(server.url, '/api/events', TOKEN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: 19.2433, lon: -103.7247, short_note: long }),
+    });
+    assert.equal(created.status, 201);
+
+    const state = await getJson(server.url, '/api/state');
+    const note = state.body.events[0].short_note;
+    assert.ok(Buffer.byteLength(note, 'utf8') <= 64, 'la nota no debe pasar de 64 bytes');
+    assert.ok(long.startsWith(note), 'el recorte no debe alterar los caracteres');
+    assert.ok(!note.includes('\uFFFD'), 'no debe quedar un carácter partido');
+  } finally {
+    await server.close();
+  }
+});
+
+test('el mismo límite se aplica al título de una alerta', async () => {
+  const server = await startServer();
+  try {
+    const long = 'Desalojo preventivo por derrumbe en la colonia Centro de Colima';
+    const created = await getJson(server.url, '/api/alerts', TOKEN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ severity: 3, lat: 19.24, lon: -103.72, title: long }),
+    });
+    assert.equal(created.status, 201);
+
+    const state = await getJson(server.url, '/api/state');
+    const title = state.body.alerts[0].title;
+    assert.ok(Buffer.byteLength(title, 'utf8') <= 64);
+    assert.ok(long.startsWith(title));
+  } finally {
+    await server.close();
+  }
+});
+
+test('prune purga eventos, alertas y pares caducados (no solo tracks)', async () => {
+  const server = await startServer();
+  try {
+    await getJson(server.url, '/api/events', TOKEN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: 19.24, lon: -103.72, short_note: 'evento viejo' }),
+    });
+    await getJson(server.url, '/api/alerts', TOKEN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ severity: 2, lat: 19.24, lon: -103.72, title: 'alerta vieja' }),
+    });
+    const a = await connect(server.wsUrl);
+    a.ws.send(proto.encode(positionPacket(301, 'b7b2c3d4e5f60708')));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    a.close();
+
+    const before = server.rt.repo.counts();
+    assert.equal(before.events, 1);
+    assert.equal(before.alerts, 1);
+    assert.equal(before.peers, 1);
+
+    const removed = server.rt.repo.prune(Date.now() + 1000, 0, 0, {
+      eventTtlMs: 0,
+      peerTtlMs: 0,
+    });
+    assert.equal(removed.events, 1);
+    assert.equal(removed.alerts, 1);
+    assert.equal(removed.peers, 1);
+    assert.deepEqual(server.rt.repo.counts(), {
+      peers: 0,
+      events: 0,
+      alerts: 0,
+      tracks: 0,
+      packets_seen: 0,
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test('un cliente que inunda el WebSocket se cierra con 1008', async () => {
+  const server = await startServer({ wsRateMax: 5, wsRateWindowMs: 60000 });
+  const client = await connect(server.wsUrl);
+  try {
+    const closed = new Promise((resolve) => client.ws.on('close', (code) => resolve(code)));
+    for (let i = 0; i < 40; i += 1) {
+      client.ws.send(proto.encode(positionPacket(400 + i, `${(0x10 + i).toString(16)}bb2c3d4e5f60708`)));
+    }
+    const code = await Promise.race([
+      closed,
+      new Promise((resolve) => setTimeout(() => resolve(-1), 3000)),
+    ]);
+    assert.equal(code, 1008, 'debe cerrarse por límite de ritmo');
+  } finally {
+    client.close();
+    await server.close();
   }
 });

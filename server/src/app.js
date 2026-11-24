@@ -38,6 +38,8 @@ function createRuntime(overrides = {}) {
     auth,
     maxClients: config.maxClients,
     maxPayloadBytes: config.maxPayloadBytes,
+    rateMax: config.wsRateMax,
+    rateWindowMs: config.wsRateWindowMs,
     log,
     onPacket: (buffer, client) => ingest.handle(buffer, client),
   });
@@ -60,8 +62,11 @@ function createRuntime(overrides = {}) {
   // Limpieza periódica de deduplicación e historial.
   const pruneTimer = setInterval(() => {
     try {
-      const removed = repo.prune(Date.now(), config.seenTtlMs, config.trackTtlMs);
-      if (removed.seen || removed.tracks) log.info('prune', removed);
+      const removed = repo.prune(Date.now(), config.seenTtlMs, config.trackTtlMs, {
+        eventTtlMs: config.eventTtlMs,
+        peerTtlMs: config.peerTtlMs,
+      });
+      if (Object.values(removed).some((n) => n > 0)) log.info('prune', removed);
     } catch (err) {
       log.warn('prune failed', { err: err.message });
     }
@@ -69,7 +74,10 @@ function createRuntime(overrides = {}) {
   pruneTimer.unref?.();
 
   try {
-    repo.prune(Date.now(), config.seenTtlMs, config.trackTtlMs);
+    repo.prune(Date.now(), config.seenTtlMs, config.trackTtlMs, {
+      eventTtlMs: config.eventTtlMs,
+      peerTtlMs: config.peerTtlMs,
+    });
   } catch {
     /* la primera vez puede no haber nada que limpiar */
   }

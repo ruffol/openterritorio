@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -27,6 +28,22 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "batteryPct" -> result.success(battery().first)
+                    "isCharging" -> result.success(battery().second)
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    /** (nivel 0–100, 1 si está cargando) según BatteryManager. */
+    private fun battery(): Pair<Int, Int> {
+        val manager = getSystemService(BATTERY_SERVICE) as? BatteryManager
+        val level = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        val charging = if (manager?.isCharging == true) 1 else 0
+        return Pair(if (level in 0..100) level else -1, charging)
     }
 
     private fun versionInfo(): Map<String, Any?> {
@@ -95,5 +112,6 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val CHANNEL = "openterritorio/ota"
+        private const val DEVICE_CHANNEL = "openterritorio/device"
     }
 }

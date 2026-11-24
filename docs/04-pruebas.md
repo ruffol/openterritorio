@@ -6,7 +6,7 @@ Fecha: **2026-11-23** (America/Mexico_City).
 
 | Prueba | Ámbito | Resultado |
 | --- | --- | --- |
-| `npm test` (16 casos) | PC | **16/16** |
+| `npm test` (20 casos) | PC | **20/20** |
 | e2e LAN `http://192.168.100.3:8080` | teléfono | **10/10** |
 | e2e público `https://tienda.tlalchichi.xyz` | teléfono + Cloudflare | **10/10** |
 | Hot deploy (stamp → watcher → restart) | teléfono | OK; datos persistieron |
@@ -36,6 +36,10 @@ node tools/sim.js --url wss://tienda.tlalchichi.xyz/ws --token <TOKEN> --peers 3
 - Rechazo de `packet_id` ≠ 8 bytes, payload incoherente y coordenadas fuera de
   rango.
 - Tamaño realista (≤ 55 bytes, LoRa).
+- Recorte de notas y títulos por **bytes UTF-8** (antes un texto con acentos
+  devolvía 400 "exceeds 64 bytes").
+- `prune` purga eventos, alertas, ACK y pares caducados, no solo historial.
+- Un cliente que inunda el WebSocket se cierra con código 1008.
 
 ## Casos de integración
 
