@@ -1,9 +1,9 @@
 {
-    "version":  "0.2.1",
-    "version_code":  3,
-    "apk":  "openterritorio.apk",
-    "size_bytes":  51514154,
-    "sha256":  "f0e7052400c9e28295fc0a389260950691db7413455014f2f89fbf8265d9bae6",
-    "notes":  "APK universal, Impeller off y captura de crashes",
-    "published_at":  "2026-11-23T23:34:56.1393171Z"
+    "version": "0.2.2",
+    "version_code": 4,
+    "apk": "openterritorio.apk",
+    "size_bytes": 51514154,
+    "sha256": "f0e7052400c9e28295fc0a389260950691db7413455014f2f89fbf8265d9bae6",
+    "notes": "Mapa offline Colima con zoom, boton calibrar, semaforo parpadeante y menu de version",
+    "published_at": "2026-11-24T00:00:00.0000000Z"
 }
