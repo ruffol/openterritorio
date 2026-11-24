@@ -411,11 +411,6 @@ class _HomePageState extends State<HomePage> {
             icon: const Icon(Icons.info_outline),
           ),
           IconButton(
-            tooltip: 'Buscar actualización',
-            onPressed: () => _checkUpdate(),
-            icon: const Icon(Icons.system_update_alt),
-          ),
-          IconButton(
             tooltip: 'Refrescar estado',
             onPressed: _refreshState,
             icon: const Icon(Icons.refresh),

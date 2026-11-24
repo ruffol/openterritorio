@@ -99,6 +99,7 @@ class BoardPainter extends CustomPainter {
       size.height / 2 - (lat - centerLat) * scale,
     );
 
+    _drawColimaMap(canvas, size, project);
     _drawGrid(canvas, size, project, centerLat, centerLon, spanLat, spanLon);
 
     for (final alert in state.alerts) {
@@ -301,4 +302,88 @@ class BoardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant BoardPainter oldDelegate) => true;
+
+  void _drawColimaMap(
+    Canvas canvas,
+    Size size,
+    Offset Function(double, double) project,
+  ) {
+    // 1. Volcán de Colima (Norte)
+    final volcano = project(19.32, -103.68);
+    final terrainPaint = Paint()
+      ..color = const Color(0xFF243042).withValues(alpha: 0.5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
+    for (var r = 25.0; r <= 85.0; r += 20.0) {
+      canvas.drawCircle(volcano, r, terrainPaint);
+    }
+    _text(
+      canvas,
+      '🌋 Volcán de Colima (3,820m)',
+      volcano + const Offset(-70, -95),
+      const Color(0xFF8B9BB0),
+      size: 10,
+    );
+
+    // 2. Río Colima
+    final riverPaint = Paint()
+      ..color = const Color(0xFF1E3A5F)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+    final riverPath = Path()
+      ..moveTo(project(19.30, -103.75).dx, project(19.30, -103.75).dy)
+      ..quadraticBezierTo(
+        project(19.25, -103.73).dx,
+        project(19.25, -103.73).dy,
+        project(19.20, -103.70).dx,
+        project(19.20, -103.70).dy,
+      );
+    canvas.drawPath(riverPath, riverPaint);
+    _text(
+      canvas,
+      '💧 Río Colima',
+      project(19.26, -103.74) + const Offset(4, 0),
+      const Color(0xFF35C2FF),
+      size: 9,
+    );
+
+    // 3. Carreteras (Carretera 54 / 110)
+    final roadPaint = Paint()
+      ..color = const Color(0xFF2D3B4E)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    canvas.drawLine(
+      project(19.35, -103.72),
+      project(19.15, -103.72),
+      roadPaint,
+    );
+    canvas.drawLine(
+      project(19.2433, -103.85),
+      project(19.2433, -103.60),
+      roadPaint,
+    );
+    _text(
+      canvas,
+      '🛣️ Carr. Federal 54 / 110',
+      project(19.2433, -103.68) + const Offset(0, -14),
+      const Color(0xFF8B9BB0),
+      size: 9,
+    );
+
+    // 4. Referencias urbanas de Colima
+    _text(
+      canvas,
+      '🏙️ VILLA DE ÁLVAREZ',
+      project(19.27, -103.75),
+      const Color(0xFF8B9BB0),
+      size: 10,
+    );
+    _text(
+      canvas,
+      '⭐ COLIMA CENTRO',
+      project(19.2433, -103.7247) + const Offset(-35, 12),
+      const Color(0xFF3DDC84),
+      size: 11,
+    );
+  }
 }
