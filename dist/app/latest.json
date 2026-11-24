@@ -1,9 +1,10 @@
 {
-  "version": "0.7.0",
-  "version_code": 17,
+  "version": "0.7.1",
+  "version_code": 18,
   "apk": "openterritorio.apk",
-  "size_bytes": 98628149,
-  "sha256": "1c79f817563d0600439a3b04c1d7c599fc23d5dc0db08a49121b08d793ed24e7",
-  "notes": "Vias y toponimos del INEGI 1:50 000 vectoriales: calles, carreteras y nombres nitidos a cualquier zoom",
-  "published_at": "2026-11-24T19:24:38.8227984Z"
+  "size_bytes": 98746637,
+  "sha256": "f793eb162957d29ce9a58e4b77dedc999db535453a1c3713fe1365bcb7935f3e",
+  "notes": "OTA desde GitHub (no gasta datos del servidor), icono nuevo y mensajes de error claros",
+  "published_at": "2026-11-24T19:24:38.8227984Z",
+  "url": ""
 }

@@ -36,7 +36,9 @@ void main() {
     port = server.port;
     server.listen((HttpRequest request) async {
       final auth = request.headers.value(HttpHeaders.authorizationHeader);
-      if (auth != 'Bearer secret') {
+      // El manifiesto es público (igual que en GitHub); el APK pide token.
+      final esManifiesto = request.uri.path == '/api/app/latest';
+      if (!esManifiesto && auth != 'Bearer secret') {
         request.response.statusCode = HttpStatus.unauthorized;
         await request.response.close();
         return;
@@ -78,6 +80,7 @@ void main() {
     ),
     cacheDir: cacheDir,
     installer: (path) async => 'ok',
+    manifestUrl: 'http://127.0.0.1:$port/api/app/latest',
   );
 
   test('detecta la versión publicada', () async {
@@ -88,7 +91,7 @@ void main() {
     expect(update.sizeBytes, apk.length);
     expect(update.sha256, apkSha);
     expect(update.notes, 'corrige el tablero');
-    expect(update.downloadUrl, 'http://127.0.0.1:$port/api/app/download');
+    expect(update.downloadUrl, 'http://127.0.0.1:$port/api/app/download?v=2');
   });
 
   test('descarga, verifica sha256 e instala', () async {
@@ -129,5 +132,26 @@ void main() {
   test('sin actualización publicada devuelve null', () async {
     notFound = true;
     expect(await serviceFor('secret').check(), isNull);
+  });
+
+  test('sin campo url resuelve el APK junto al manifiesto del repositorio', () {
+    final update = OtaUpdate.fromJson(
+      <String, dynamic>{
+        'version': '9.9.9',
+        'version_code': 99,
+        'apk': 'openterritorio.apk',
+        'size_bytes': 123,
+        'sha256': 'abc',
+      },
+      Uri.parse(
+        'https://raw.githubusercontent.com/ruffol/openterritorio/master/dist/app/latest.json',
+      ),
+    );
+    expect(
+      update.downloadUrl,
+      'https://raw.githubusercontent.com/ruffol/openterritorio/master/dist/app/openterritorio.apk?v=99',
+    );
+    expect(update.source, 'GitHub');
+    expect(update.versionCode, 99);
   });
 }

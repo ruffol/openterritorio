@@ -328,12 +328,6 @@ class _HomePageState extends State<HomePage> {
   Future<void> _checkUpdate({bool silent = false}) async {
     if (_checkingUpdate) return;
     final client = _client;
-    if (client == null) {
-      if (!silent) {
-        _showSnack('Conecta con el backend para buscar actualizaciones.');
-      }
-      return;
-    }
     _checkingUpdate = true;
     try {
       final local = await OtaChannel.currentVersion();
@@ -346,12 +340,12 @@ class _HomePageState extends State<HomePage> {
       final update = await service.check();
       if (!mounted) return;
       if (update == null) {
-        if (!silent) _showSnack('Servidor: sin actualización publicada (404).');
+        if (!silent) _showSnack('Sin actualización publicada todavía.');
         return;
       }
       if (update.versionCode <= local.versionCode) {
         if (!silent) {
-          _showSnack('Al día: app v${local.versionName} (${local.versionCode}) vs servidor v${update.version} (${update.versionCode})');
+          _showSnack('Al día: v${local.versionName} (${local.versionCode}) · publicado v${update.version} (${update.versionCode})');
         }
         return;
       }
