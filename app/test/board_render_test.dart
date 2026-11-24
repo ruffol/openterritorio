@@ -198,6 +198,44 @@ void main() {
     expect(pixelAt(0), isNot(0x0B0F14));
   });
 
+  test('el punto de SANGRE lleva emoji y anillo rojo de 500 m', () async {
+    expect(kLandmarks.length, greaterThanOrEqualTo(2));
+    final sangre = kLandmarks.firstWhere((l) => l.name == 'SANGRE');
+    expect(sangre.radiusM, 500);
+    expect(sangre.emoji, '🩸');
+    expect(sangre.lat, closeTo(19.25511111, 1e-8));
+    expect(sangre.lon, closeTo(-103.72936111, 1e-8));
+
+    const size = Size(400, 700);
+    final seeded = await _seedTiles(MapLayerId.oscuro, sangre.lat, sangre.lon, radius: 3);
+    expect(seeded, greaterThan(4));
+
+    final viewport = MapViewport(
+      centerLat: sangre.lat,
+      centerLon: sangre.lon,
+      zoom: 15,
+    );
+    final state = AppState()..selfId = 2001;
+    final (image, rgba) = await _paintBoard(state, viewport, size);
+    await _save(image, 'board_sangre.png');
+
+    final radiusPx = 500 / viewport.metersPerPixel;
+    expect(radiusPx, greaterThan(40));
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    var foundRed = false;
+    for (var dx = radiusPx - 3; dx <= radiusPx + 3; dx++) {
+      for (final dy in <double>[-1, 0, 1]) {
+        final x = (cx + dx).round().clamp(0, size.width.toInt() - 1);
+        final y = (cy + dy).round().clamp(0, size.height.toInt() - 1);
+        final i = (y * size.width.toInt() + x) * 4;
+        final r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+        if (r > 150 && r > g + 50 && r > b + 50) foundRed = true;
+      }
+    }
+    expect(foundRed, isTrue, reason: 'no se encontró el anillo rojo de 500 m');
+  });
+
   test('dibuja pares, eventos y alertas encima del mapa', () async {
     const size = Size(400, 700);
     await _seedTiles(MapLayerId.oscuro, 19.2433, -103.7247);

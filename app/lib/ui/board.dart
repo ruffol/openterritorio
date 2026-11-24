@@ -37,6 +37,15 @@ const List<Landmark> kLandmarks = <Landmark>[
     radiusM: 50,
     color: Color(0xFF3DDC84),
   ),
+  // 19°15'18.4"N 103°43'45.7"W
+  Landmark(
+    name: 'SANGRE',
+    lat: 19.25511111,
+    lon: -103.72936111,
+    emoji: '🩸',
+    radiusM: 500,
+    color: Color(0xFFFF3B30),
+  ),
 ];
 
 /// Capas de mapa offline disponibles.
@@ -522,9 +531,9 @@ class BoardPainter extends CustomPainter {
       _text(
         canvas,
         place.emoji,
-        center + Offset(-9, -11),
+        center + Offset(-11, -13),
         place.color,
-        size: 17,
+        size: 20,
       );
       _text(
         canvas,
