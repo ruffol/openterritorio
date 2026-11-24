@@ -332,6 +332,43 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _showAbout() async {
+    final info = await OtaChannel.currentVersion();
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('OPENTERITORIO'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Versión instalada: v${info.versionName} (código ${info.versionCode})'),
+            const SizedBox(height: 12),
+            const Text('Repositorio oficial:'),
+            const SelectableText(
+              'https://github.com/ruffol/openterritorio',
+              style: TextStyle(color: Colors.blue),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _checkUpdate();
+            },
+            child: const Text('Comprobar OTA'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -368,6 +405,11 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Versión y Repositorio',
+            onPressed: _showAbout,
+            icon: const Icon(Icons.info_outline),
+          ),
           IconButton(
             tooltip: 'Buscar actualización',
             onPressed: () => _checkUpdate(),
