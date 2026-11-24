@@ -78,4 +78,13 @@ const List<Landmark> kLandmarks = <Landmark>[
     radiusM: 500,
     colors: <Color>[Color(0xFFFF3B30), Color(0xFF1E90FF)],
   ),
+  // 19°16'00.8"N 103°43'38.7"W
+  Landmark(
+    name: 'MARRÓN',
+    lat: 19.26688889,
+    lon: -103.72741667,
+    emoji: '🟤',
+    radiusM: 100,
+    colors: <Color>[Color(0xFFA0522D)],
+  ),
 ];

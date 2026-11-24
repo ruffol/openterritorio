@@ -484,10 +484,13 @@ test('los puntos fijos se sirven y se pueden cambiar por API (sin tocar la app)'
   try {
     const initial = await getJson(server.url, '/api/landmarks');
     assert.equal(initial.status, 200);
-    assert.equal(initial.body.landmarks.length, 2);
+    assert.equal(initial.body.landmarks.length, 3);
     const sangre = initial.body.landmarks.find((l) => l.name === 'SANGRE');
     assert.equal(sangre.radius_m, 500);
     assert.deepEqual(sangre.colors, ['#FF3B30', '#1E90FF']);
+    const marron = initial.body.landmarks.find((l) => l.name === 'MARRÓN');
+    assert.equal(marron.radius_m, 100);
+    assert.deepEqual(marron.colors, ['#A0522D']);
 
     const updated = await getJson(server.url, '/api/landmarks', TOKEN, {
       method: 'PUT',

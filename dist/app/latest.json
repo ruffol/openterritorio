@@ -1,9 +1,9 @@
 {
-    "version":  "0.5.0",
-    "version_code":  14,
+    "version":  "0.5.1",
+    "version_code":  15,
     "apk":  "openterritorio.apk",
     "size_bytes":  103594001,
-    "sha256":  "a1977620c5dc7a26ba72ff597526446b18fa9c31a9604bd5ca5b38b7ddac50d6",
-    "notes":  "SANGRE con anillo rojo y azul; los puntos ahora se sirven desde el backend",
-    "published_at":  "2026-11-24T07:58:33.1890372Z"
+    "sha256":  "7fd4215284888c47f66e45a9e0857adc2b15c0ec11107e1e58bd84095942dc9a",
+    "notes":  "Punto MARROON con emoji y anillo cafe de 100 m",
+    "published_at":  "2026-11-24T13:40:41.9339070Z"
 }

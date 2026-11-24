@@ -242,6 +242,43 @@ void main() {
     expect(foundBlue, isTrue, reason: 'falta la franja azul');
   });
 
+  test('el punto MARRÓN lleva emoji y anillo café de 100 m', () async {
+    final marron = kLandmarks.firstWhere((l) => l.name == 'MARRÓN');
+    expect(marron.radiusM, 100);
+    expect(marron.emoji, '🟤');
+    expect(marron.lat, closeTo(19.26688889, 1e-8));
+    expect(marron.lon, closeTo(-103.72741667, 1e-8));
+    expect(marron.colors.first.toARGB32(), 0xFFA0522D);
+
+    const size = Size(400, 700);
+    final seeded = await _seedTiles(MapLayerId.oscuro, marron.lat, marron.lon, radius: 3);
+    expect(seeded, greaterThan(4));
+
+    final viewport = MapViewport(
+      centerLat: marron.lat,
+      centerLon: marron.lon,
+      zoom: 16,
+    );
+    final state = AppState()..selfId = 2001;
+    final (image, rgba) = await _paintBoard(state, viewport, size);
+    await _save(image, 'board_marron.png');
+
+    final radiusPx = 100 / viewport.metersPerPixel;
+    expect(radiusPx, greaterThan(20));
+    var foundBrown = false;
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    for (var step = 0; step < 32; step++) {
+      final angle = 2 * math.pi * step / 32;
+      final x = (cx + math.cos(angle) * radiusPx).round().clamp(0, size.width.toInt() - 1);
+      final y = (cy + math.sin(angle) * radiusPx).round().clamp(0, size.height.toInt() - 1);
+      final i = (y * size.width.toInt() + x) * 4;
+      final r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+      if (r > 110 && r > g + 35 && g > b + 15 && b < 110) foundBrown = true;
+    }
+    expect(foundBrown, isTrue, reason: 'no se encontró el anillo café de 100 m');
+  });
+
   test('dibuja pares, eventos y alertas encima del mapa', () async {
     const size = Size(400, 700);
     await _seedTiles(MapLayerId.oscuro, 19.2433, -103.7247);

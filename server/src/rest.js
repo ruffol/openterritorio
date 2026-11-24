@@ -172,6 +172,14 @@ const DEFAULT_LANDMARKS = Object.freeze([
     radius_m: 500,
     colors: ['#FF3B30', '#1E90FF'],
   },
+  {
+    name: 'MARRÓN',
+    lat: 19.26688889,
+    lon: -103.72741667,
+    emoji: '🟤',
+    radius_m: 100,
+    colors: ['#A0522D'],
+  },
 ]);
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
