@@ -35,11 +35,17 @@ class _HomePageState extends State<HomePage> {
   StreamSubscription<ConnectionStatus>? _statusSub;
   StreamSubscription<Position>? _positionSub;
   Timer? _tickTimer;
+  final TransformationController _transformController = TransformationController();
 
   /// Se sustituye en `_bootstrap` por la configuración persistida.
   ConnectionSettings _settings = ConnectionSettings.fallback();
   int _simStep = 0;
   bool _checkingUpdate = false;
+
+  void _calibrate() {
+    _transformController.value = Matrix4.identity();
+    _showSnack('Mapa calibrado y centrado en Colima');
+  }
 
   int get _senderId => _settings.senderId;
 
@@ -339,6 +345,7 @@ class _HomePageState extends State<HomePage> {
     _packetSub?.cancel();
     _statusSub?.cancel();
     _positionSub?.cancel();
+    _transformController.dispose();
     _client?.dispose();
     _state.dispose();
     super.dispose();
@@ -350,7 +357,7 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: Row(
           children: [
-            Icon(Icons.circle, size: 9, color: linkColor(_state.link)),
+            BlinkingDot(link: _state.link, size: 9),
             const SizedBox(width: 8),
             const Text('OPENTERITORIO'),
             const SizedBox(width: 8),
@@ -383,7 +390,15 @@ class _HomePageState extends State<HomePage> {
         builder: (context, _) {
           return Column(
             children: [
-              Expanded(child: TacticalBoard(state: _state)),
+              Expanded(
+                child: InteractiveViewer(
+                  transformationController: _transformController,
+                  boundaryMargin: const EdgeInsets.all(double.infinity),
+                  minScale: 0.5,
+                  maxScale: 8.0,
+                  child: TacticalBoard(state: _state),
+                ),
+              ),
               StatusBar(state: _state),
             ],
           );
@@ -393,6 +408,13 @@ class _HomePageState extends State<HomePage> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          FloatingActionButton.small(
+            heroTag: 'calibrate',
+            tooltip: 'Calibrar / Centrar mapa',
+            onPressed: _calibrate,
+            child: const Icon(Icons.gps_fixed),
+          ),
+          const SizedBox(height: 12),
           FloatingActionButton.small(
             heroTag: 'event',
             tooltip: 'Marcar evento en mi posición',

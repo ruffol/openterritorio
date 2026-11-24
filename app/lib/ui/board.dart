@@ -245,7 +245,7 @@ class BoardPainter extends CustomPainter {
 
     _text(
       canvas,
-      'rejilla ${step.toStringAsFixed(3)}°',
+      '🗺️ Colima Offline · rejilla ${step.toStringAsFixed(3)}°',
       const Offset(8, 8),
       _muted,
       size: 10,

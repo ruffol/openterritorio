@@ -15,6 +15,48 @@ Color linkColor(LinkState link) {
   }
 }
 
+/// Indicador de semáforo parpadeante cuando está en línea.
+class BlinkingDot extends StatefulWidget {
+  const BlinkingDot({super.key, required this.link, this.size = 9});
+
+  final LinkState link;
+  final double size;
+
+  @override
+  State<BlinkingDot> createState() => _BlinkingDotState();
+}
+
+class _BlinkingDotState extends State<BlinkingDot> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = linkColor(widget.link);
+    if (widget.link != LinkState.connected) {
+      return Icon(Icons.circle, size: widget.size, color: color);
+    }
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Icon(
+          Icons.circle,
+          size: widget.size,
+          color: color.withValues(alpha: 0.25 + 0.75 * _controller.value),
+        );
+      },
+    );
+  }
+}
+
 /// Pie del tablero: enlace, posición propia, contadores y último error.
 class StatusBar extends StatelessWidget {
   const StatusBar({super.key, required this.state});
@@ -38,7 +80,7 @@ class StatusBar extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.circle, size: 8, color: linkColor(state.link)),
+              BlinkingDot(link: state.link, size: 8),
               const SizedBox(width: 6),
               Text(
                 state.link.label,
