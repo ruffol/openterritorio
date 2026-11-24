@@ -290,12 +290,12 @@ class _HomePageState extends State<HomePage> {
       final update = await service.check();
       if (!mounted) return;
       if (update == null) {
-        if (!silent) _showSnack('No hay actualizaciones publicadas.');
+        if (!silent) _showSnack('Servidor: sin actualización publicada (404).');
         return;
       }
       if (update.versionCode <= local.versionCode) {
         if (!silent) {
-          _showSnack('Ya tienes la última versión (v${local.versionName}).');
+          _showSnack('Al día: app v${local.versionName} (${local.versionCode}) vs servidor v${update.version} (${update.versionCode})');
         }
         return;
       }

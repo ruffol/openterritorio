@@ -1,9 +1,9 @@
 {
     "version":  "0.2.2",
-    "version_code":  5,
+    "version_code":  6,
     "apk":  "openterritorio.apk",
     "size_bytes":  52281162,
-    "sha256":  "91b33db576736be5f9e7536d492916fb41ac660516317f6aaf15343427bbc04c",
+    "sha256":  "3041e18e3881a6e4d078bca44e8e5bd18d18e8b477ebd19e2b6d713c459b32c5",
     "notes":  "",
-    "published_at":  "2026-11-24T01:14:53.3314260Z"
+    "published_at":  "2026-11-24T01:19:22.1013356Z"
 }
