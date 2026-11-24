@@ -20,6 +20,9 @@ enum MapLayerId {
   final String attribution;
 }
 
+/// Capas incluidas en esta compilación (el selector solo ofrece estas).
+const List<MapLayerId> kShippedLayers = <MapLayerId>[MapLayerId.oscuro];
+
 /// Estado de cámara del tablero: centro, zoom continuo y capa activa.
 ///
 /// El zoom es la fuente de verdad del mapa (no el `InteractiveViewer`): así las
@@ -33,7 +36,7 @@ class MapViewport extends ChangeNotifier {
   });
 
   static const double minZoom = 10;
-  static const double maxZoom = 17;
+  static const double maxZoom = 18;
   static const int tileSize = 256;
 
   double centerLat;
@@ -125,7 +128,7 @@ class OfflineTiles {
   OfflineTiles._();
 
   static const int minZoom = 10;
-  static const int maxZoom = 17;
+  static const int maxZoom = 18;
 
   /// Teselas decodificadas que se conservan (96 × 256² ≈ 25 MB).
   static int capacity = 96;
@@ -438,7 +441,9 @@ class BoardPainter extends CustomPainter {
           parent,
           Rect.fromLTWH((x % factor) * subW, (y % factor) * subH, subW, subH),
           dest,
-          Paint()..filterQuality = FilterQuality.low,
+          // Al ampliar una tesela de nivel inferior, filtrar suave evita el
+          // aspecto de bloques y suaviza el texto del mapa.
+          Paint()..filterQuality = FilterQuality.medium,
         );
         painted = true;
       }

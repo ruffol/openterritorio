@@ -524,6 +524,48 @@ test('los puntos fijos se sirven y se pueden cambiar por API (sin tocar la app)'
   }
 });
 
+test('OTA: subida por trozos publica solo cuando llega el último', async () => {
+  const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openterritorio-chunks-'));
+  const server = await startServer({ appDir });
+  const apk = Buffer.from('APK-GRANDE-'.repeat(40) + 'FIN');
+  const sha256 = crypto.createHash('sha256').update(apk).digest('hex');
+  const query = `version=2.0.0&version_code=200&sha256=${sha256}&size=${apk.length}`;
+  const headers = {
+    Authorization: 'Bearer ' + TOKEN,
+    'Content-Type': 'application/octet-stream',
+  };
+  const half = Math.floor(apk.length / 2);
+  try {
+    const first = await fetch(`${server.url}/api/app/upload?${query}&offset=0`, {
+      method: 'POST',
+      headers,
+      body: apk.subarray(0, half),
+    });
+    assert.equal(first.status, 202);
+    assert.equal((await first.json()).received, half);
+
+    const none = await getJson(server.url, '/api/app/latest');
+    assert.equal(none.status, 404, 'no debe publicarse con el APK a medias');
+
+    const second = await fetch(`${server.url}/api/app/upload?${query}&offset=${half}`, {
+      method: 'POST',
+      headers,
+      body: apk.subarray(half),
+    });
+    assert.equal(second.status, 201);
+    const body = await second.json();
+    assert.equal(body.size_bytes, apk.length);
+    assert.equal(body.sha256, sha256);
+
+    const latest = await getJson(server.url, '/api/app/latest');
+    assert.equal(latest.status, 200);
+    assert.equal(latest.body.version_code, 200);
+  } finally {
+    await server.close();
+    fs.rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
 test('un cliente que inunda el WebSocket se cierra con 1008', async () => {
   const server = await startServer({ wsRateMax: 5, wsRateWindowMs: 60000 });
   const client = await connect(server.wsUrl);

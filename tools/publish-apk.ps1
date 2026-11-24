@@ -67,16 +67,17 @@ if ($Remote) {
   $base = $RemoteUrl.TrimEnd('/')
   $query = 'version={0}&version_code={1}&sha256={2}&notes={3}' -f `
     $Version, $BuildNumber, $sha, [uri]::EscapeDataString($Notes)
-  Write-Host ("Subiendo {0} MB a {1} ..." -f ([math]::Round($size / 1MB, 1)), $base)
-  $response = Invoke-WebRequest -Uri "$base/api/app/upload?$query" `
-    -Method Post -InFile $targetApk -ContentType 'application/octet-stream' `
-    -Headers @{ Authorization = 'Bearer ' + $Token } -TimeoutSec 1800 -UseBasicParsing
-  $body = $response.Content | ConvertFrom-Json
-  if ($response.StatusCode -ne 201) { throw "subida HTTP $($response.StatusCode)" }
-  if ($body.sha256 -ne $sha) { throw 'el servidor devolvió un sha256 distinto' }
+  $headers = @{ Authorization = 'Bearer ' + $Token }
+  $node = 'C:\Program Files\nodejs\node.exe'
+  if (-not (Test-Path $node)) { $node = 'node' }
+  # Se publica con Node: `Invoke-RestMethod -Body byte[]` corrompía los bloques
+  # grandes y el servidor rechazaba el sha256.
+  $env:OPENTERITORIO_TOKEN = $Token
+  & $node (Join-Path $root 'tools\publish-remote.js') $targetApk $Version $BuildNumber $Notes $base $Token
+  if ($LASTEXITCODE -ne 0) { throw 'la publicación remota falló' }
   # Verificación independiente: lo que sirve /api/app/latest es lo que acaba de subirse.
   $latest = Invoke-RestMethod -Uri "$base/api/app/latest" `
-    -Headers @{ Authorization = 'Bearer ' + $Token } -TimeoutSec 120
+    -Headers $headers -TimeoutSec 120
   if ($latest.version_code -ne $BuildNumber -or $latest.sha256 -ne $sha) {
     throw 'la verificación contra /api/app/latest falló'
   }

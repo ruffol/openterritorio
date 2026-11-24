@@ -144,9 +144,9 @@ void main() {
 
   test('centrar en la posición propia deja el marcador en el centro', () async {
     const size = Size(400, 700);
-    await _seedTiles(MapLayerId.osm, 19.1138, -104.3267, radius: 3);
+    await _seedTiles(MapLayerId.oscuro, 19.1138, -104.3267, radius: 3);
 
-    final viewport = MapViewport(layer: MapLayerId.osm)
+    final viewport = MapViewport(layer: MapLayerId.oscuro)
       ..goTo(19.1138, -104.3267, zoom: 16);
     final center = viewport.project(19.1138, -104.3267, size);
     expect(center.dx, closeTo(size.width / 2, 0.5));

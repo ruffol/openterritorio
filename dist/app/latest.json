@@ -1,9 +1,9 @@
 {
-    "version":  "0.5.1",
-    "version_code":  15,
-    "apk":  "openterritorio.apk",
-    "size_bytes":  103594001,
-    "sha256":  "7fd4215284888c47f66e45a9e0857adc2b15c0ec11107e1e58bd84095942dc9a",
-    "notes":  "Punto MARROON con emoji y anillo cafe de 100 m",
-    "published_at":  "2026-11-24T13:40:41.9339070Z"
+  "version": "0.6.0",
+  "version_code": 16,
+  "apk": "openterritorio.apk",
+  "size_bytes": 98091298,
+  "sha256": "b3404b466a82fb6bcfa0db9c04a706e914631f75a722b10cdfa4132a5a07f505",
+  "notes": "Mapa con mas resolucion: z15 en todo el estado y z16-z17 en Colima y Villa de Alvarez",
+  "published_at": "2026-11-24T19:24:38.8227984Z"
 }

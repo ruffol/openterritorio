@@ -99,22 +99,28 @@ def build_url(layer, z, x, y):
 
 
 def plan(layer):
-    """El estado completo hasta z13; el detalle urbano, en parches."""
+    """El estado completo hasta z15; las ciudades, con detalle hasta z17."""
     jobs = {}
-    state_levels = (10, 11, 12, 13, 14) if layer == "oscuro" else (10, 11, 12, 13)
+    state_levels = (10, 11, 12, 13, 14, 15) if layer == "oscuro" else (10, 11, 12, 13)
     for z in state_levels:
         for t in tiles_for(STATE, z):
             jobs[t] = "estado"
 
     if layer == "oscuro":
-        patch_levels = (15, 16)
+        fine = ("colima", "villa")
+        patch_levels = (16, 17)
+        other_levels = (16,)
     elif layer == "osm":
+        fine = ()
         patch_levels = (14, 15)
-    else:  # inegi: ~5 s por tesela, solo detalle z14 en las cabeceras
+        other_levels = (14, 15)
+    else:  # inegi: ~5 s por tesela
+        fine = ()
         patch_levels = (14,)
+        other_levels = (14,)
 
     for name, box in PATCHES:
-        levels = patch_levels
+        levels = patch_levels if name in fine else other_levels
         if layer == "inegi" and name in ("comala", "armeria"):
             levels = ()
         for z in levels:

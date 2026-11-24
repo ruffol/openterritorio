@@ -469,6 +469,8 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
     }
 
     const limit = config.maxUploadBytes;
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const totalSize = Number(req.query.size) || 0;
     const apkName = 'openterritorio.apk';
     const finalPath = path.join(config.appDir, apkName);
     const partPath = path.join(config.appDir, `${apkName}.part`);
@@ -480,7 +482,7 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
       const meter = new Transform({
         transform(chunk, _encoding, callback) {
           bytes += chunk.length;
-          if (bytes > limit) {
+          if (offset + bytes > limit) {
             callback(new Error('too large'));
             return;
           }
@@ -489,9 +491,31 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
         },
       });
 
-      await pipeline(req, meter, fs.createWriteStream(partPath));
+      // Subida por trozos: `offset` indica dónde empieza este bloque y `size`
+      // el total esperado. Sin `size` se asume de una sola pieza.
+      await pipeline(
+        req,
+        meter,
+        fs.createWriteStream(partPath, { flags: offset > 0 ? 'a' : 'w' }),
+      );
 
-      const digest = hash.digest('hex');
+      const written = fs.statSync(partPath).size;
+      if (totalSize > 0 && written < totalSize) {
+        log.info('trozo de APK recibido', { written, total: totalSize });
+        return res.status(202).json({ ok: true, received: written, pending: totalSize });
+      }
+
+      // Verificación sobre el archivo completo (los trozos ya están unidos).
+      const digest = offset === 0
+        ? hash.digest('hex')
+        : await new Promise((resolve, reject) => {
+            const whole = crypto.createHash('sha256');
+            fs.createReadStream(partPath)
+              .on('data', (chunk) => whole.update(chunk))
+              .on('end', () => resolve(whole.digest('hex')))
+              .on('error', reject);
+          });
+
       if (digest !== expected) {
         fs.rmSync(partPath, { force: true });
         return res.status(400).json({
@@ -507,7 +531,7 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
         version,
         version_code: versionCode,
         apk: apkName,
-        size_bytes: bytes,
+        size_bytes: written,
         sha256: digest,
         notes,
         published_at: new Date().toISOString(),

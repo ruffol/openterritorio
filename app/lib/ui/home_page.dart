@@ -65,7 +65,7 @@ class _HomePageState extends State<HomePage> {
       builder: (context) => SimpleDialog(
         title: const Text('Capa de mapa offline'),
         children: [
-          for (final layer in MapLayerId.values)
+          for (final layer in kShippedLayers)
             ListTile(
               leading: Icon(
                 layer == _viewport.layer
