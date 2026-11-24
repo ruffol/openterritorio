@@ -100,6 +100,8 @@ Write-Host ''
 Write-Host "Publicado v$Version (code $BuildNumber), $sizeMb MB, sha256=$sha"
 Write-Host "Manifiesto: $manifestPath"
 Write-Host 'OTA: GET /api/app/latest y /api/app/download (Bearer token)'
-if (-not $NoPush) {
+if ($Remote) {
+  Write-Host 'Publicado por HTTPS: el backend ya sirve esta versión (sin cable, sin watcher).'
+} elseif (-not $NoPush) {
   Write-Host 'El watcher del teléfono copia el APK a ~/openterritorio/app/ en <= 10 s.'
 }
