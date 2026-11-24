@@ -17,17 +17,25 @@ import java.io.File
  * mediante PackageInstaller (sin necesidad de FileProvider ni permisos root).
  */
 class MainActivity : FlutterActivity() {
+    private var otaChannel: MethodChannel? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "getVersion" -> result.success(versionInfo())
-                    "cacheDir" -> result.success(cacheDir.absolutePath)
-                    "install" -> install(call.argument<String>("path"), result)
-                    else -> result.notImplemented()
+        otaChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+            .also { channel ->
+                channel.setMethodCallHandler { call, result ->
+                    when (call.method) {
+                        "getVersion" -> result.success(versionInfo())
+                        "cacheDir" -> result.success(cacheDir.absolutePath)
+                        "install" -> install(call.argument<String>("path"), result)
+                        else -> result.notImplemented()
+                    }
                 }
             }
+        // El resultado real de la sesión vuelve a Dart (motivo del fallo incluido).
+        InstallBus.onResult = { sessionId, _status, message, success ->
+            reportInstall(sessionId, success, message)
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEVICE_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -82,6 +90,14 @@ class MainActivity : FlutterActivity() {
             result.success("permission")
             return
         }
+
+        // Comprobaciones previas: si la firma o la versión no cuadran, el
+        // instalador del sistema fallaría con la ventana ya cerrada.
+        checkCompatibility(file)?.let { motivo ->
+            result.success("error:$motivo")
+            return
+        }
+
         try {
             val params = PackageInstaller.SessionParams(
                 PackageInstaller.SessionParams.MODE_FULL_INSTALL,
@@ -89,25 +105,89 @@ class MainActivity : FlutterActivity() {
             params.setAppPackageName(packageName)
             val installer = packageManager.packageInstaller
             val sessionId = installer.createSession(params)
-            installer.openSession(sessionId).use { session ->
-                session.openWrite("openterritorio.apk", 0, file.length()).use { out ->
-                    file.inputStream().use { input -> input.copyTo(out) }
-                    session.fsync(out)
-                }
-                val intent = Intent(this, InstallResultReceiver::class.java).apply {
-                    action = InstallResultReceiver.ACTION_INSTALL
-                    setPackage(packageName)
-                }
-                // Android 14 exige que el PendingIntent del instalador sea mutable.
-                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                    PendingIntent.FLAG_MUTABLE
-                val pending = PendingIntent.getBroadcast(this, sessionId, intent, flags)
-                session.commit(pending.intentSender)
+            val session = installer.openSession(sessionId)
+            session.openWrite("openterritorio.apk", 0, file.length()).use { out ->
+                file.inputStream().use { input -> input.copyTo(out) }
+                session.fsync(out)
             }
+            val intent = Intent(this, InstallResultReceiver::class.java).apply {
+                action = InstallResultReceiver.ACTION_INSTALL
+                setPackage(packageName)
+                putExtra(InstallBus.EXTRA_SESSION_ID, sessionId)
+            }
+            // Android 14 exige que el PendingIntent del instalador sea mutable.
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                PendingIntent.FLAG_MUTABLE
+            val pending = PendingIntent.getBroadcast(this, sessionId, intent, flags)
+
+            // Respaldo: si el broadcast nunca llega, la sesión sí notifica.
+            installer.registerSessionCallback(
+                object : PackageInstaller.SessionCallback() {
+                    override fun onCreated(id: Int) {}
+                    override fun onBadgingChanged(id: Int) {}
+                    override fun onActiveChanged(id: Int, active: Boolean) {}
+                    override fun onProgressChanged(id: Int, progress: Float) {}
+                    override fun onFinished(id: Int, success: Boolean) {
+                        if (id != sessionId) return
+                        installer.unregisterSessionCallback(this)
+                        reportInstall(sessionId, success, null)
+                    }
+                },
+            )
+
+            // Ojo: NO cerrar la sesión aquí. Cerrarla justo después de `commit`
+            // hacía que Android abortara la instalación sin mostrar nada.
+            session.commit(pending.intentSender)
             result.success("ok")
         } catch (error: Exception) {
             result.error("install", error.message ?: error.toString(), null)
         }
+    }
+
+    /** Motivo por el que la instalación no podría completarse, o null si todo cuadra. */
+    private fun checkCompatibility(apk: File): String? {
+        val flags = PackageManager.PackageInfoFlags.of(
+            PackageManager.GET_SIGNING_CERTIFICATES.toLong(),
+        )
+        val installed = packageManager.getPackageInfo(packageName, flags)
+        val candidate = packageManager.getPackageArchiveInfo(apk.absolutePath, flags)
+            ?: return "el APK descargado está dañado o incompleto"
+
+        val installedCert = installed.signingInfo?.apkContentsSigners?.firstOrNull()
+        val candidateCert = candidate.signingInfo?.apkContentsSigners?.firstOrNull()
+        if (installedCert == null || candidateCert == null) return null
+        if (!installedCert.toByteArray().contentEquals(candidateCert.toByteArray())) {
+            return "la firma de la actualización no coincide con la app instalada; " +
+                "desinstala OPENTERITORIO y vuelve a instalarlo"
+        }
+        if (candidate.longVersionCode <= installed.longVersionCode) {
+            return "el APK descargado (${candidate.longVersionCode}) no es más nuevo " +
+                "que el instalado (${installed.longVersionCode})"
+        }
+        return null
+    }
+
+    private val reportedSessions = mutableSetOf<Int>()
+
+    /** Entrega a Flutter el resultado real de la sesión (una vez por sesión). */
+    private fun reportInstall(sessionId: Int, success: Boolean, message: String?) {
+        synchronized(reportedSessions) {
+            if (!reportedSessions.add(sessionId)) return
+        }
+        val status = if (success) {
+            PackageInstaller.STATUS_SUCCESS
+        } else {
+            PackageInstaller.STATUS_FAILURE
+        }
+        otaChannel?.invokeMethod(
+            "installResult",
+            mapOf(
+                "session" to sessionId,
+                "success" to success,
+                "status" to status,
+                "message" to (message ?: ""),
+            ),
+        )
     }
 
     companion object {

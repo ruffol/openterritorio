@@ -1,9 +1,9 @@
 {
-    "version":  "0.4.1",
-    "version_code":  11,
+    "version":  "0.4.2",
+    "version_code":  12,
     "apk":  "openterritorio.apk",
     "size_bytes":  103594001,
-    "sha256":  "44eff5d8a705bf72cbbe33d0346e1d537dcbe732eeb6e93807f7b2f6b990b902",
-    "notes":  "Punto de la universidad con emoji y anillo verde de 50 m",
-    "published_at":  "2026-11-24T06:44:35.1134854Z"
+    "sha256":  "80bacfdc8ca0d5555f8a2d6ef99fbdc00753cc7e6f3a200d26966c9fe684a649",
+    "notes":  "OTA: la instalacion ya no se aborta y el motivo del fallo se muestra en la app",
+    "published_at":  "2026-11-24T07:10:35.1482337Z"
 }
