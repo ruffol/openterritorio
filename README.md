@@ -54,6 +54,22 @@ La app se actualiza desde el propio backend, sin Play Store:
    muestra las notas, descarga el APK verificando el **sha256** y lanza el
    instalador del sistema (`PackageInstaller`).
 
+### Publicar sin cable (`-Remote`)
+
+```powershell
+$env:OPENTERITORIO_TOKEN = "<token>"
+powershell -ExecutionPolicy Bypass -File .\tools\publish-apk.ps1 -Remote -Notes "cambios"
+```
+
+Sube el APK por HTTPS a `POST /api/app/upload` (mismo token), el servidor
+verifica el sha256 en streaming, renombra de forma atómica y reescribe el
+manifiesto; el script lo confirma releyendo `/api/app/latest`. No depende del
+watcher ni de adb, que es lo único que se puede usar cuando el teléfono no está
+conectado por USB.
+
+> Límite: Cloudflare corta cuerpos de ~100 MB, así que un APK mayor necesita
+> subida por trozos. El de 0.4.0 (98.8 MB) pasa justo.
+
 ```powershell
 # Sube la versión en app/pubspec.yaml (version: X.Y.Z+N) o pásala a mano:
 powershell -ExecutionPolicy Bypass -File .\tools\publish-apk.ps1 `
