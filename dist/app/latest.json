@@ -1,9 +1,9 @@
 {
-    "version": "0.2.3",
-    "version_code": 7,
-    "apk": "openterritorio.apk",
-    "size_bytes": 52934620,
-    "sha256": "130403b8f52ca8b7f1dd57869bf0f5c26f410b9875f7edb93271732589e6bb9e",
-    "notes": "Mapa offline de Colima (calles reales, 6.9 km + contexto 18.5 km), batería real, SIM vs GPS corregido y servidor con retención de datos y límite de ritmo.",
-    "published_at": "2026-11-24T02:17:28.897949Z"
+    "version":  "0.3.0",
+    "version_code":  9,
+    "apk":  "openterritorio.apk",
+    "size_bytes":  78219608,
+    "sha256":  "ba1573b3478032713d14a5e0df270877f2ee28c994d1dec6780b2cf352aba973",
+    "notes":  "Mapa offline de TODO el estado de Colima (6070 teselas z10-z16), atribucion y escala visibles, bateria real, SIM/GPS corregido",
+    "published_at":  "2026-11-24T04:11:36.6054859Z"
 }

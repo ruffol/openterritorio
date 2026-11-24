@@ -99,23 +99,34 @@ WebSocket con reconexión exponencial, REST `/api/state`, tablero `CustomPainter
 GPS real (`geolocator`), eventos desde el campo, ACK de alertas y ajustes
 persistentes (`shared_preferences`).
 
-### Mapa offline
+### Mapa offline (todo el estado de Colima)
 
-El tablero lleva dos capas raster georreferenciadas dentro del APK (sin red):
+El tablero lleva una **pirámide de teselas** dentro del APK (sin red):
 
-| Capa | Cobertura | Asset |
+| Nivel | Cobertura | Uso |
 | --- | --- | --- |
-| Detalle urbano (z15) | 6.9 × 6.9 km, Colima centro + Villa de Álvarez | `assets/map/colima_z15.jpg` (441 KB) |
-| Contexto regional (z13) | 18.5 × 18.5 km | `assets/map/colima_z13.jpg` (84 KB) |
+| z10–z13 | Estado completo (costa, volcán, 10 municipios, ~130 × 95 km) | contexto y zoom amplio |
+| z14 | Estado completo con calles de cabeceras | uso normal |
+| z15–z16 | Parches de detalle urbano: Colima, Villa de Álvarez, Manzanillo, Tecomán, Comala y Armería | calle a calle en las ciudades |
 
-Se dibujan con `drawImageRect` sobre la misma proyección que pares, eventos y
-alertas, y las etiquetas propias (COLIMA CENTRO, VILLA DE ÁLVAREZ, COMALA) van
-encima para que se lean en 480 px. Atribución en pantalla: *© Esri, HERE,
-Garmin, © OpenStreetMap*. Si el tablero sale de esa cobertura muestra la rejilla
-y el aviso "Sin mapa offline en esta zona".
+Son ~6 070 teselas JPEG (`app/assets/tiles/colima_<z>_<x>_<y>.jpg`, ~36 MB) que se
+cargan bajo demanda con una caché LRU de 96 teselas (~25 MB de RAM), así que el
+tamaño del mapa no crece en memoria: solo se decodifica lo visible. Si una
+tesela aún no está cargada se dibuja el nivel inferior como respaldo y se
+solicita la definitiva.
 
-`app/test/board_render_test.dart` pinta el tablero a PNG y falla si más del 50 %
-del lienzo sigue siendo el color de fondo: un mapa invisible no puede pasar.
+Se dibujan con proyección **Web Mercator** (la misma de las teselas) y encima van
+las etiquetas propias (COLIMA, VILLA DE ÁLVAREZ, MANZANILLO, TECOMÁN, ARMERÍA,
+COMALA, VOLCÁN DE COLIMA), la escala en m/km y la atribución
+*© Esri, HERE, Garmin, © OpenStreetMap*.
+
+Para regenerarlo o ampliar la cobertura: `python tools/fetch-tiles.py`
+(fuente Esri Dark Gray Canvas, sin clave; añade niveles o parches editando
+`STATE`, `PATCHES` y `STATE_LEVELS`).
+
+`app/test/board_render_test.dart` pinta el tablero a PNG con teselas reales
+(Colima y Manzanillo) y falla si más del 50 % del lienzo sigue siendo el color
+de fondo: un mapa invisible no puede pasar.
 
 > Requiere **Android 14 (API 34) o superior** (`minSdk = 34`, `targetSdk = 36`).
 > La capa nativa usa directamente las APIs obligatorias en esa versión
@@ -130,7 +141,7 @@ Verificado con Flutter 3.50.1 / JDK 17 / Android SDK 36 / Gradle 9.5:
 | Comprobación | Resultado |
 | --- | --- |
 | `flutter analyze` | sin incidencias |
-| `flutter test` | **25/25** (protocolo, estado, ajustes, texto, WebSocket/REST reales, OTA y render del mapa) |
+| `flutter test` | **26/26** (protocolo, estado, ajustes, texto, WebSocket/REST reales, OTA y render del mapa con teselas) |
 | `flutter build apk --release` (universal) | **OK** |
 
 Instrucciones en [`app/README.md`](app/README.md).

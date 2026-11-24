@@ -1,7 +1,7 @@
 name: openterritorio
 description: Cliente tactico offline-first para OPENTERITORIO (mapas, GPS y eventos).
 publish_to: 'none'
-version: 0.2.3+7
+version: 0.3.0+9
 
 environment:
   sdk: '>=3.13.0 <4.0.0'
@@ -24,5 +24,4 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/map/colima_z15.jpg
-    - assets/map/colima_z13.jpg
+    - assets/tiles/

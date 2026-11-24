@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -11,6 +12,8 @@ import 'package:openterritorio/ui/board.dart';
 /// Fuente real para la previsualización: en `flutter test` el motor usa una
 /// fuente de prueba que dibuja cada glifo como un rectángulo sólido.
 const String _previewFont = 'BoardPreview';
+
+const String _tileDir = 'assets/tiles';
 
 Future<void> _loadPreviewFont() async {
   const candidates = <String>[
@@ -30,81 +33,99 @@ Future<void> _loadPreviewFont() async {
   }
 }
 
-/// Renderiza el tablero a un PNG real para comprobar que el mapa offline
-/// se pinta (no basta con que el analizador esté contento).
-Future<ui.Image> _decode(String path) async {
-  final bytes = await File(path).readAsBytes();
-  final codec = await ui.instantiateImageCodec(bytes);
-  final frame = await codec.getNextFrame();
-  return frame.image;
+int _tileX(double lon, int z) => ((lon + 180) / 360 * (1 << z)).floor();
+int _tileY(double lat, int z) {
+  final rad = lat * math.pi / 180;
+  return ((1 - math.log(math.tan(rad) + 1 / math.cos(rad)) / math.pi) / 2 * (1 << z))
+      .floor();
+}
+
+Future<ui.Image> _decodeFile(String path) async {
+  final codec = await ui.instantiateImageCodec(await File(path).readAsBytes());
+  return (await codec.getNextFrame()).image;
+}
+
+/// Carga en la caché las teselas reales alrededor de un punto.
+Future<int> _seedTiles(double lat, double lon, {int radius = 3}) async {
+  var seeded = 0;
+  for (final z in <int>[13, 14, 15, 16]) {
+    final xc = _tileX(lon, z);
+    final yc = _tileY(lat, z);
+    for (var dx = -radius; dx <= radius; dx++) {
+      for (var dy = -radius; dy <= radius; dy++) {
+        final file = File('$_tileDir/colima_${z}_${xc + dx}_${yc + dy}.jpg');
+        if (!file.existsSync()) continue;
+        OfflineTiles.seedForTest(z, xc + dx, yc + dy, await _decodeFile(file.path));
+        seeded++;
+      }
+    }
+  }
+  return seeded;
 }
 
 Future<(ui.Image, List<int>)> _paintBoard(AppState state, Size size) async {
-  final near = MapLayer(
-    asset: 'assets/map/colima_z15.jpg',
-    west: OfflineMap.nearWest,
-    east: OfflineMap.nearEast,
-    north: OfflineMap.nearNorth,
-    south: OfflineMap.nearSouth,
-    image: await _decode(File('assets/map/colima_z15.jpg').path),
-  );
-  final far = MapLayer(
-    asset: 'assets/map/colima_z13.jpg',
-    west: OfflineMap.farWest,
-    east: OfflineMap.farEast,
-    north: OfflineMap.farNorth,
-    south: OfflineMap.farSouth,
-    image: await _decode(File('assets/map/colima_z13.jpg').path),
-  );
-
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder);
-  BoardPainter(state, near: near, far: far, fontFamily: _previewFont)
-      .paint(canvas, size);
-  final picture = recorder.endRecording();
-  final image = await picture.toImage(size.width.toInt(), size.height.toInt());
+  BoardPainter(state, fontFamily: _previewFont).paint(canvas, size);
+  final image = await (recorder.endRecording())
+      .toImage(size.width.toInt(), size.height.toInt());
   final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
   return (image, data!.buffer.asUint8List());
 }
 
-double _nonBackgroundRatio(List<int> rgba, Size size) {
+double _nonBackgroundRatio(List<int> rgba) {
   var painted = 0;
   for (var i = 0; i < rgba.length; i += 4) {
-    final dr = (rgba[i] - 0x0B).abs();
-    final dg = (rgba[i + 1] - 0x0F).abs();
-    final db = (rgba[i + 2] - 0x14).abs();
-    if (dr + dg + db > 12) painted++;
+    final delta = (rgba[i] - 0x0B).abs() +
+        (rgba[i + 1] - 0x0F).abs() +
+        (rgba[i + 2] - 0x14).abs();
+    if (delta > 12) painted++;
   }
-  return painted / (size.width * size.height);
+  return painted / (rgba.length / 4);
+}
+
+Future<void> _save(ui.Image image, String name) async {
+  Directory('build/preview').createSync(recursive: true);
+  final png = await image.toByteData(format: ui.ImageByteFormat.png);
+  File('build/preview/$name').writeAsBytesSync(png!.buffer.asUint8List());
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(_loadPreviewFont);
 
-  test('el tablero pinta el mapa offline, no un rectángulo negro', () async {
+  test('el mapa offline del estado de Colima se pinta (no un rectángulo negro)', () async {
     const size = Size(400, 700);
+    final seeded = await _seedTiles(19.2433, -103.7247);
+    expect(seeded, greaterThan(4), reason: 'faltan teselas en $_tileDir');
+
     final state = AppState()
       ..selfId = 2001
       ..setOwn(19.2433, -103.7247, heading: 90, speedKmh: 12);
 
     final (image, rgba) = await _paintBoard(state, size);
-    final ratio = _nonBackgroundRatio(rgba, size);
-    expect(
-      ratio,
-      greaterThan(0.5),
-      reason: 'el mapa debe cubrir la mayor parte del lienzo (fue $ratio)',
-    );
-
-    final png = await image.toByteData(format: ui.ImageByteFormat.png);
-    Directory('build/preview').createSync(recursive: true);
-    File('build/preview/board_mapa.png').writeAsBytesSync(
-      png!.buffer.asUint8List(),
-    );
+    final ratio = _nonBackgroundRatio(rgba);
+    expect(ratio, greaterThan(0.5), reason: 'el mapa debe cubrir el lienzo (fue $ratio)');
+    await _save(image, 'board_mapa.png');
   });
 
-  test('el tablero dibuja pares, eventos y alertas sobre el mapa', () async {
+  test('también pinta la costa (Manzanillo) con las teselas del estado', () async {
     const size = Size(400, 700);
+    await _seedTiles(19.1138, -104.3267, radius: 2);
+
+    final state = AppState()
+      ..selfId = 2002
+      ..setOwn(19.1138, -104.3267, heading: 0, speedKmh: 0);
+
+    final (image, rgba) = await _paintBoard(state, size);
+    expect(_nonBackgroundRatio(rgba), greaterThan(0.5));
+    await _save(image, 'board_manzanillo.png');
+  });
+
+  test('dibuja pares, eventos y alertas encima del mapa', () async {
+    const size = Size(400, 700);
+    await _seedTiles(19.2433, -103.7247);
+
     final state = AppState()..selfId = 2001;
     state.applySnapshot(<String, dynamic>{
       'peers': [
@@ -120,12 +141,7 @@ void main() {
     });
 
     final (image, rgba) = await _paintBoard(state, size);
-    expect(_nonBackgroundRatio(rgba, size), greaterThan(0.5));
-
-    final png = await image.toByteData(format: ui.ImageByteFormat.png);
-    Directory('build/preview').createSync(recursive: true);
-    File('build/preview/board_operativo.png').writeAsBytesSync(
-      png!.buffer.asUint8List(),
-    );
+    expect(_nonBackgroundRatio(rgba), greaterThan(0.5));
+    await _save(image, 'board_operativo.png');
   });
 }

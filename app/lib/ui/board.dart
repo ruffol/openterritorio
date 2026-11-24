@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -6,110 +7,126 @@ import 'package:material_ui/material_ui.dart';
 
 import '../data/app_state.dart';
 
-/// Capa raster georreferenciada del mapa offline.
+/// Pirámide de teselas del mapa offline (todo el estado de Colima).
 ///
-/// Cada capa es un mosaico de teselas ya unido y empaquetado como asset, con
-/// sus límites geográficos: se dibuja con `drawImageRect` bajo la misma
-/// proyección que los pares y eventos, sin depender de la red.
-class MapLayer {
-  MapLayer({
-    required this.asset,
-    required this.west,
-    required this.east,
-    required this.north,
-    required this.south,
-    required this.image,
-  });
+/// Se guardan como assets planos (`assets/tiles/colima_<z>_<x>_<y>.jpg`) y se
+/// cargan bajo demanda con una caché LRU: el mapa puede pesar cientos de MB en
+/// disco sin que el teléfono tenga que decodificarlo entero en memoria.
+class OfflineTiles {
+  OfflineTiles._();
 
-  final String asset;
-  final double west;
-  final double east;
-  final double north;
-  final double south;
-  final ui.Image image;
-
-  double get spanLon => east - west;
-  double get spanLat => north - south;
-
-  bool intersects(double n, double s, double w, double e) =>
-      n > south && s < north && e > west && w < east;
-
-  static Future<MapLayer> load({
-    required String asset,
-    required double west,
-    required double east,
-    required double north,
-    required double south,
-  }) async {
-    final data = await rootBundle.load(asset);
-    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
-    final frame = await codec.getNextFrame();
-    return MapLayer(
-      asset: asset,
-      west: west,
-      east: east,
-      north: north,
-      south: south,
-      image: frame.image,
-    );
-  }
-}
-
-/// Capas del mapa offline (se cargan una sola vez por proceso).
-class OfflineMap {
-  OfflineMap._();
+  static const int minZoom = 10;
+  static const int maxZoom = 16;
+  static const int tileSize = 256;
+  static const int _capacity = 96;
 
   static const String attribution = '© Esri, HERE, Garmin, © OpenStreetMap';
 
-  /// Detalle urbano: Colima centro + Villa de Álvarez (z15, ~6.9 km).
-  static const String nearAsset = 'assets/map/colima_z15.jpg';
-  static const double nearWest = -103.76586914;
-  static const double nearEast = -103.69995117;
-  static const double nearNorth = 19.28003580;
-  static const double nearSouth = 19.21780296;
+  static final LinkedHashMap<String, ui.Image> _images =
+      LinkedHashMap<String, ui.Image>();
+  static final Set<String> _loading = <String>{};
 
-  /// Contexto regional (z13, ~18.5 km).
-  static const String farAsset = 'assets/map/colima_z13.jpg';
-  static const double farWest = -103.84277344;
-  static const double farEast = -103.66699219;
-  static const double farNorth = 19.35261089;
-  static const double farSouth = 19.18667770;
+  /// Cambia cada vez que entra una tesela nueva (el tablero se repinta).
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
 
-  static MapLayer? near;
-  static MapLayer? far;
+  static String assetPath(int z, int x, int y) =>
+      'assets/tiles/colima_${z}_${x}_$y.jpg';
 
-  /// `true` cuando ya se intentó cargar (con o sin éxito).
-  static final ValueNotifier<bool> loaded = ValueNotifier<bool>(false);
+  static String _key(int z, int x, int y) => '$z:$x:$y';
 
-  static bool _started = false;
+  static ui.Image? get(int z, int x, int y) => _images[_key(z, x, y)];
 
-  static Future<void> ensureLoaded() async {
-    if (_started) return;
-    _started = true;
-    try {
-      near = await MapLayer.load(
-        asset: nearAsset,
-        west: nearWest,
-        east: nearEast,
-        north: nearNorth,
-        south: nearSouth,
-      );
-    } on Object {
-      near = null;
-    }
-    try {
-      far = await MapLayer.load(
-        asset: farAsset,
-        west: farWest,
-        east: farEast,
-        north: farNorth,
-        south: farSouth,
-      );
-    } on Object {
-      far = null;
-    }
-    loaded.value = true;
+  /// Pide una tesela una sola vez y avisa cuando llega.
+  static void request(int z, int x, int y) {
+    if (z < minZoom || z > maxZoom) return;
+    final key = _key(z, x, y);
+    if (_images.containsKey(key) || _loading.contains(key)) return;
+    _loading.add(key);
+    rootBundle
+        .load(assetPath(z, x, y))
+        .then((data) async {
+          final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+          final frame = await codec.getNextFrame();
+          put(z, x, y, frame.image);
+        })
+        .catchError((Object _) {
+          // Fuera de cobertura: no hay asset para esa tesela.
+        })
+        .whenComplete(() => _loading.remove(key));
   }
+
+  /// Inserta una tesela en la caché (también lo usa la prueba de render).
+  static void put(int z, int x, int y, ui.Image image) {
+    final key = _key(z, x, y);
+    _images.remove(key)?.dispose();
+    _images[key] = image;
+    while (_images.length > _capacity) {
+      final oldest = _images.keys.first;
+      _images.remove(oldest)?.dispose();
+    }
+    revision.value++;
+  }
+
+  /// Tesela ya cargada de la misma zona en un nivel inferior (respaldo mientras
+  /// llega la definitiva, o donde no hay nivel alto).
+  static ui.Image? fallback(int z, int x, int y, {int levels = 3}) {
+    for (var dz = 1; dz <= levels; dz++) {
+      final zz = z - dz;
+      if (zz < minZoom) break;
+      final factor = 1 << dz;
+      final img = get(zz, x ~/ factor, y ~/ factor);
+      if (img != null) return img;
+    }
+    return null;
+  }
+
+  static void seedForTest(int z, int x, int y, ui.Image image) => put(z, x, y, image);
+}
+
+/// Proyección Web Mercator (la misma de las teselas) y ventana visible.
+class _View {
+  _View({
+    required this.centerLat,
+    required this.centerLon,
+    required this.scale,
+    required this.size,
+  });
+
+  /// Centro geográfico del tablero.
+  final double centerLat;
+  final double centerLon;
+
+  /// Píxeles por grado de longitud en el centro.
+  final double scale;
+  final Size size;
+
+  static double _merc(double latDeg) =>
+      math.log(math.tan(math.pi / 4 + latDeg * math.pi / 360));
+
+  static double _invMerc(double value) =>
+      (2 * math.atan(math.exp(value)) - math.pi / 2) * 180 / math.pi;
+
+  /// Píxeles por unidad Mercator (la Y crece hacia el norte).
+  double get mercScale => scale * 180 / math.pi;
+
+  Offset project(double lat, double lon) => Offset(
+    size.width / 2 + (lon - centerLon) * scale,
+    size.height / 2 - (_merc(lat) - _merc(centerLat)) * mercScale,
+  );
+
+  double lonAt(double x) => centerLon + (x - size.width / 2) / scale;
+
+  double latAt(double y) => _invMerc(_merc(centerLat) - (y - size.height / 2) / mercScale);
+
+  /// Zoom de teselas que mejor coincide con la escala actual.
+  int get zoom =>
+      (math.log(scale * 360 / OfflineTiles.tileSize) / math.ln2).round().clamp(
+        OfflineTiles.minZoom,
+        OfflineTiles.maxZoom,
+      );
+
+  double metersPerPixel(int zoom) =>
+      156543.03392 * math.cos(centerLat * math.pi / 180) / (1 << zoom);
 }
 
 class TacticalBoard extends StatefulWidget {
@@ -125,30 +142,32 @@ class _TacticalBoardState extends State<TacticalBoard> {
   @override
   void initState() {
     super.initState();
-    OfflineMap.ensureLoaded().then((_) {
-      if (mounted) setState(() {});
-    });
+    OfflineTiles.revision.addListener(_onTiles);
+  }
+
+  void _onTiles() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    OfflineTiles.revision.removeListener(_onTiles);
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: BoardPainter(
-        widget.state,
-        near: OfflineMap.near,
-        far: OfflineMap.far,
-      ),
+      painter: BoardPainter(widget.state),
       child: const SizedBox.expand(),
     );
   }
 }
 
 class BoardPainter extends CustomPainter {
-  BoardPainter(this.state, {this.near, this.far, this.fontFamily});
+  BoardPainter(this.state, {this.fontFamily});
 
   final AppState state;
-  final MapLayer? near;
-  final MapLayer? far;
 
   /// Familia tipográfica opcional (en pruebas se usa una fuente real para que
   /// la previsualización sea legible; en el teléfono basta la del sistema).
@@ -165,7 +184,7 @@ class BoardPainter extends CustomPainter {
   static const double _defaultLat = 19.2433;
   static const double _defaultLon = -103.7247;
 
-  /// Ventana mínima del tablero (~2 km): por debajo el mapa no da contexto.
+  /// Ventana mínima del tablero (~2 km): por debajo se pierde el contexto.
   static const double _minSpanLat = 0.018;
 
   @override
@@ -208,32 +227,18 @@ class BoardPainter extends CustomPainter {
       spanLon = math.max(maxLon - minLon, _minSpanLat);
     }
 
-    final cosLat = math.cos(centerLat * math.pi / 180).clamp(0.15, 1.0);
-    final scale = math.min(
-      size.width / (spanLon * cosLat * 1.15),
-      size.height / (spanLat * 1.15),
+    final view = _View(
+      centerLat: centerLat,
+      centerLon: centerLon,
+      scale: math.min(size.width / (spanLon * 1.15), size.height / (spanLat * 1.15)),
+      size: size,
     );
+    final zoom = view.zoom;
 
-    Offset project(double lat, double lon) => Offset(
-      size.width / 2 + (lon - centerLon) * cosLat * scale,
-      size.height / 2 - (lat - centerLat) * scale,
-    );
+    final painted = _drawTiles(canvas, size, view, zoom);
 
-    // Ventana geográfica visible (para recortar las capas del mapa).
-    final halfLat = size.height / 2 / scale;
-    final halfLon = size.width / 2 / (cosLat * scale);
-    final north = centerLat + halfLat;
-    final south = centerLat - halfLat;
-    final west = centerLon - halfLon;
-    final east = centerLon + halfLon;
-
-    _drawLayer(canvas, size, project, far, north, south, west, east);
-    _drawLayer(canvas, size, project, near, north, south, west, east);
-
-    final hasMap = (near?.intersects(north, south, west, east) ?? false) ||
-        (far?.intersects(north, south, west, east) ?? false);
-    if (!hasMap) {
-      _drawGrid(canvas, size, project, centerLat, centerLon, spanLat, spanLon);
+    if (!painted) {
+      _drawGrid(canvas, size, view);
       _text(
         canvas,
         'Sin mapa offline en esta zona',
@@ -244,17 +249,14 @@ class BoardPainter extends CustomPainter {
       );
     }
 
-    _drawPlaces(canvas, size, project);
+    _drawPlaces(canvas, size, view);
 
     for (final alert in state.alerts) {
-      final center = project(alert.lat, alert.lon);
+      final center = view.project(alert.lat, alert.lon);
       final color = _severityColor(alert.severity);
-      final radiusPx = math.max(8.0, alert.radiusM / 111320.0 * scale);
-      canvas.drawCircle(
-        center,
-        radiusPx,
-        Paint()..color = color.withValues(alpha: 0.10),
-      );
+      final metersPerPx = view.metersPerPixel(zoom);
+      final radiusPx = math.max(8.0, alert.radiusM / metersPerPx);
+      canvas.drawCircle(center, radiusPx, Paint()..color = color.withValues(alpha: 0.10));
       canvas.drawCircle(
         center,
         radiusPx,
@@ -273,7 +275,7 @@ class BoardPainter extends CustomPainter {
     }
 
     for (final event in state.events) {
-      final center = project(event.lat, event.lon);
+      final center = view.project(event.lat, event.lon);
       final path = Path()
         ..moveTo(center.dx, center.dy - 7)
         ..lineTo(center.dx + 7, center.dy)
@@ -291,7 +293,7 @@ class BoardPainter extends CustomPainter {
     }
 
     for (final peer in state.peers.values) {
-      final center = project(peer.lat, peer.lon);
+      final center = view.project(peer.lat, peer.lon);
       canvas.save();
       canvas.translate(center.dx, center.dy);
       canvas.rotate(peer.headingDeg * math.pi / 180);
@@ -316,46 +318,25 @@ class BoardPainter extends CustomPainter {
     final ownLat = state.ownLat;
     final ownLon = state.ownLon;
     if (ownLat != null && ownLon != null) {
-      final center = project(ownLat, ownLon);
+      final center = view.project(ownLat, ownLon);
       final stroke = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2
         ..color = _ownColor;
       canvas.drawCircle(center, 9, stroke);
-      canvas.drawLine(
-        center - const Offset(15, 0),
-        center + const Offset(15, 0),
-        stroke,
-      );
-      canvas.drawLine(
-        center - const Offset(0, 15),
-        center + const Offset(0, 15),
-        stroke,
-      );
-      _text(
-        canvas,
-        'YO',
-        center + const Offset(11, -18),
-        _ownColor,
-        size: 12,
-        chip: true,
-      );
+      canvas.drawLine(center - const Offset(15, 0), center + const Offset(15, 0), stroke);
+      canvas.drawLine(center - const Offset(0, 15), center + const Offset(0, 15), stroke);
+      _text(canvas, 'YO', center + const Offset(11, -18), _ownColor, size: 12, chip: true);
     }
 
-    _drawScale(canvas, size, scale, points.isEmpty);
-    _text(
-      canvas,
-      OfflineMap.attribution,
-      Offset(math.max(4, size.width - 210), size.height - 11),
-      _muted,
-      size: 8,
-    );
+    _drawScale(canvas, size, view.metersPerPixel(zoom));
+    _drawAttribution(canvas, size);
 
     if (points.isEmpty) {
       _text(
         canvas,
         'Sin datos todavía. Conecta el backend o pulsa SIM.',
-        Offset(size.width * 0.05, size.height - 42),
+        Offset(size.width * 0.05, size.height - 64),
         _muted,
         size: 12,
         shadow: true,
@@ -363,104 +344,135 @@ class BoardPainter extends CustomPainter {
     }
   }
 
-  /// Dibuja una capa raster recortada a su cobertura geográfica.
-  void _drawLayer(
-    Canvas canvas,
-    Size size,
-    Offset Function(double, double) project,
-    MapLayer? layer,
-    double north,
-    double south,
-    double west,
-    double east,
-  ) {
-    if (layer == null) return;
-    if (!layer.intersects(north, south, west, east)) return;
+  /// Dibuja las teselas visibles del nivel elegido. Devuelve `false` si no hay
+  /// ninguna disponible (ni siquiera de respaldo) para esta ventana.
+  bool _drawTiles(Canvas canvas, Size size, _View view, int zoom) {
+    final n = 1 << zoom;
+    final lonPerTile = 360 / n;
 
-    final topLeft = project(layer.north, layer.west);
-    final bottomRight = project(layer.south, layer.east);
-    canvas.save();
-    canvas.clipRect(Offset.zero & size);
-    canvas.drawImageRect(
-      layer.image,
-      Rect.fromLTWH(
-        0,
-        0,
-        layer.image.width.toDouble(),
-        layer.image.height.toDouble(),
-      ),
-      Rect.fromLTRB(topLeft.dx, topLeft.dy, bottomRight.dx, bottomRight.dy),
-      Paint()..filterQuality = FilterQuality.medium,
-    );
-    canvas.restore();
+    final west = view.lonAt(0);
+    final east = view.lonAt(size.width);
+    final north = view.latAt(0);
+    final south = view.latAt(size.height);
+
+    int xFor(double lon) => ((lon + 180) / lonPerTile).floor().clamp(0, n - 1);
+    int yFor(double lat) {
+      final rad = lat * math.pi / 180;
+      final y = (1 - math.log(math.tan(rad) + 1 / math.cos(rad)) / math.pi) / 2 * n;
+      return y.floor().clamp(0, n - 1);
+    }
+
+    final x0 = xFor(west);
+    final x1 = xFor(east);
+    final y0 = yFor(north);
+    final y1 = yFor(south);
+
+    var painted = false;
+    for (var x = x0; x <= x1; x++) {
+      for (var y = y0; y <= y1; y++) {
+        final img = OfflineTiles.get(zoom, x, y);
+        final tileNorth = _tileLat(y, zoom);
+        final tileSouth = _tileLat(y + 1, zoom);
+        final tileWest = x * lonPerTile - 180;
+        final tileEast = (x + 1) * lonPerTile - 180;
+        final topLeft = view.project(tileNorth, tileWest);
+        final bottomRight = view.project(tileSouth, tileEast);
+        final dest = Rect.fromLTRB(topLeft.dx, topLeft.dy, bottomRight.dx, bottomRight.dy);
+
+        if (img != null) {
+          canvas.drawImageRect(
+            img,
+            Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+            dest,
+            Paint()..filterQuality = FilterQuality.low,
+          );
+          painted = true;
+          continue;
+        }
+
+        OfflineTiles.request(zoom, x, y);
+
+        // Respaldo: la misma zona en un nivel inferior ya cargado.
+        final parent = OfflineTiles.fallback(zoom, x, y);
+        if (parent != null) {
+          final dz = zoom - _levelOf(parent, zoom, x, y);
+          final factor = 1 << dz;
+          final subW = parent.width.toDouble() / factor;
+          final subH = parent.height.toDouble() / factor;
+          final src = Rect.fromLTWH((x % factor) * subW, (y % factor) * subH, subW, subH);
+          canvas.drawImageRect(
+            parent,
+            src,
+            dest,
+            Paint()..filterQuality = FilterQuality.low,
+          );
+          painted = true;
+        }
+      }
+    }
+    return painted;
+  }
+
+  /// Nivel del que provino el respaldo (para recortar el cuadrante correcto).
+  int _levelOf(ui.Image image, int zoom, int x, int y) {
+    for (var dz = 1; dz <= 3; dz++) {
+      final zz = zoom - dz;
+      if (zz < OfflineTiles.minZoom) break;
+      final factor = 1 << dz;
+      if (identical(OfflineTiles.get(zz, x ~/ factor, y ~/ factor), image)) {
+        return zz;
+      }
+    }
+    return zoom;
+  }
+
+  double _tileLat(int y, int zoom) {
+    final n = math.pi - 2 * math.pi * y / (1 << zoom);
+    // atan(sinh(n)) sin depender de dart:math (que no expone sinh).
+    return (2 * math.atan(math.exp(n)) - math.pi / 2) * 180 / math.pi;
   }
 
   /// Etiquetas propias: el raster no se lee en 480 px, estas sí.
-  void _drawPlaces(
-    Canvas canvas,
-    Size size,
-    Offset Function(double, double) project,
-  ) {
+  void _drawPlaces(Canvas canvas, Size size, _View view) {
     const places = <(String, double, double)>[
-      ('COLIMA CENTRO', 19.2433, -103.7247),
+      ('COLIMA', 19.2433, -103.7247),
       ('VILLA DE ÁLVAREZ', 19.2647, -103.7444),
       ('COMALA', 19.3237, -103.7600),
+      ('MANZANILLO', 19.1138, -104.3267),
+      ('TECOMÁN', 18.9108, -103.8747),
+      ('ARMERÍA', 18.9383, -103.9642),
+      ('VOLCÁN DE COLIMA', 19.5144, -103.6186),
     ];
     for (final (name, lat, lon) in places) {
-      final at = project(lat, lon);
-      if (at.dx < -100 || at.dx > size.width + 100) continue;
+      final at = view.project(lat, lon);
+      if (at.dx < -120 || at.dx > size.width + 120) continue;
       if (at.dy < -20 || at.dy > size.height + 20) continue;
-      _text(
-        canvas,
-        name,
-        at + const Offset(5, -5),
-        _muted,
-        size: 10,
-        shadow: true,
-      );
+      _text(canvas, name, at + const Offset(5, -5), _muted, size: 10, shadow: true);
     }
   }
 
-  void _drawGrid(
-    Canvas canvas,
-    Size size,
-    Offset Function(double, double) project,
-    double centerLat,
-    double centerLon,
-    double spanLat,
-    double spanLon,
-  ) {
-    final step = spanLat > 0.5
-        ? 0.1
-        : spanLat > 0.1
-        ? 0.02
-        : spanLat > 0.02
-        ? 0.005
-        : 0.001;
+  void _drawGrid(Canvas canvas, Size size, _View view) {
+    const degrees = [0.5, 0.25, 0.1, 0.05, 0.02, 0.01];
+    final pxPerDegree = view.scale;
+    final step = degrees.firstWhere(
+      (d) => d * pxPerDegree > 60,
+      orElse: () => 0.01,
+    );
     final paint = Paint()
       ..color = _grid
       ..strokeWidth = 1;
 
-    final latMin = centerLat - spanLat * 0.7;
-    final latMax = centerLat + spanLat * 0.7;
-    for (
-      var lat = (latMin / step).floorToDouble() * step;
-      lat <= latMax;
-      lat += step
-    ) {
-      final y = project(lat, centerLon).dy;
+    final north = view.latAt(0);
+    final south = view.latAt(size.height);
+    for (var lat = (south / step).floorToDouble() * step; lat <= north; lat += step) {
+      final y = view.project(lat, view.centerLon).dy;
       if (y < 0 || y > size.height) continue;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
     }
-
-    final lonMin = centerLon - spanLon * 0.7;
-    final lonMax = centerLon + spanLon * 0.7;
-    for (
-      var lon = (lonMin / step).floorToDouble() * step;
-      lon <= lonMax;
-      lon += step
-    ) {
-      final x = project(centerLat, lon).dx;
+    final west = view.lonAt(0);
+    final east = view.lonAt(size.width);
+    for (var lon = (west / step).floorToDouble() * step; lon <= east; lon += step) {
+      final x = view.project(view.centerLat, lon).dx;
       if (x < 0 || x > size.width) continue;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
@@ -474,10 +486,40 @@ class BoardPainter extends CustomPainter {
     );
   }
 
-  void _drawScale(Canvas canvas, Size size, double scale, bool empty) {
-    if (empty) return;
-    final meters = scale > 150 ? 1000 : (scale > 60 ? 500 : 200);
-    final px = meters / 111320.0 * scale;
+  /// Atribución alineada a la derecha y medida antes de dibujar: es una
+  /// condición de la licencia, no puede quedar recortada.
+  void _drawAttribution(Canvas canvas, Size size) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: OfflineTiles.attribution,
+        style: TextStyle(
+          color: _muted,
+          fontSize: 8,
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(
+      canvas,
+      Offset(math.max(4, size.width - painter.width - 6), size.height - painter.height - 4),
+    );
+    painter.dispose();
+  }
+
+  void _drawScale(Canvas canvas, Size size, double metersPerPixel) {
+    final candidates = <double>[
+      50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000,
+    ];
+    var meters = candidates.last;
+    for (final candidate in candidates) {
+      if (candidate / metersPerPixel >= 60) {
+        meters = candidate;
+        break;
+      }
+    }
+    final px = meters / metersPerPixel;
     final origin = Offset(12, size.height - 22);
     final paint = Paint()
       ..color = _muted
@@ -485,7 +527,8 @@ class BoardPainter extends CustomPainter {
     canvas.drawLine(origin, origin + Offset(px, 0), paint);
     canvas.drawLine(origin + Offset(0, -4), origin + Offset(0, 4), paint);
     canvas.drawLine(origin + Offset(px, -4), origin + Offset(px, 4), paint);
-    _text(canvas, '$meters m', origin + const Offset(0, -16), _muted, size: 10);
+    final label = meters >= 1000 ? '${(meters / 1000).toStringAsFixed(0)} km' : '${meters.toStringAsFixed(0)} m';
+    _text(canvas, label, origin + const Offset(0, -16), _muted, size: 10);
   }
 
   Color _severityColor(int severity) {
@@ -515,6 +558,7 @@ class BoardPainter extends CustomPainter {
           style: TextStyle(
             color: const Color(0xCC000000),
             fontSize: size,
+            fontFamily: fontFamily,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -536,16 +580,13 @@ class BoardPainter extends CustomPainter {
       textDirection: TextDirection.ltr,
     )..layout();
     if (chip) {
-      final rect = RRect.fromRectAndRadius(
-        Rect.fromLTWH(
-          at.dx - 3,
-          at.dy - 2,
-          painter.width + 6,
-          painter.height + 4,
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(at.dx - 3, at.dy - 2, painter.width + 6, painter.height + 4),
+          const Radius.circular(3),
         ),
-        const Radius.circular(3),
+        Paint()..color = const Color(0xD9080C12),
       );
-      canvas.drawRRect(rect, Paint()..color = const Color(0xD9080C12));
     }
     painter.paint(canvas, at);
     painter.dispose();
@@ -553,9 +594,7 @@ class BoardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant BoardPainter oldDelegate) =>
-      oldDelegate.state != state ||
-      oldDelegate.near != near ||
-      oldDelegate.far != far;
+      oldDelegate.state != state || oldDelegate.fontFamily != fontFamily;
 }
 
 class _Geo {
