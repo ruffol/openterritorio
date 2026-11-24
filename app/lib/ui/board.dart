@@ -7,6 +7,38 @@ import 'package:material_ui/material_ui.dart';
 
 import '../data/app_state.dart';
 
+/// Punto fijo del tablero (no depende del backend ni de la red).
+class Landmark {
+  const Landmark({
+    required this.name,
+    required this.lat,
+    required this.lon,
+    required this.emoji,
+    required this.radiusM,
+    required this.color,
+  });
+
+  final String name;
+  final double lat;
+  final double lon;
+  final String emoji;
+  final double radiusM;
+  final Color color;
+}
+
+/// Referencias permanentes: se dibujan siempre, con su anillo de radio real.
+const List<Landmark> kLandmarks = <Landmark>[
+  // 19°18'53.9"N 103°45'31.6"W
+  Landmark(
+    name: 'UNIVERSIDAD',
+    lat: 19.31497222,
+    lon: -103.75877778,
+    emoji: '🎓',
+    radiusM: 50,
+    color: Color(0xFF3DDC84),
+  ),
+];
+
 /// Capas de mapa offline disponibles.
 enum MapLayerId {
   oscuro('Oscuro (Esri)', 'assets/tiles/oscuro', '© Esri, HERE, Garmin, © OpenStreetMap'),
@@ -296,6 +328,7 @@ class BoardPainter extends CustomPainter {
     }
 
     _drawPlaces(canvas, size);
+    _drawLandmarks(canvas, size);
 
     for (final alert in state.alerts) {
       final center = viewport.project(alert.lat, alert.lon, size);
@@ -460,6 +493,48 @@ class BoardPainter extends CustomPainter {
   double _tileLat(int y, int zoom) {
     final n = math.pi - 2 * math.pi * y / (1 << zoom);
     return (2 * math.atan(math.exp(n)) - math.pi / 2) * 180 / math.pi;
+  }
+
+  /// Puntos fijos con anillo de radio real y emoji.
+  void _drawLandmarks(Canvas canvas, Size size) {
+    for (final place in kLandmarks) {
+      final center = viewport.project(place.lat, place.lon, size);
+      if (center.dx < -80 || center.dx > size.width + 80) continue;
+      if (center.dy < -80 || center.dy > size.height + 80) continue;
+
+      final radiusPx = place.radiusM / viewport.metersPerPixel;
+      if (radiusPx >= 3) {
+        canvas.drawCircle(
+          center,
+          radiusPx,
+          Paint()..color = place.color.withValues(alpha: 0.14),
+        );
+        canvas.drawCircle(
+          center,
+          radiusPx,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2
+            ..color = place.color,
+        );
+      }
+
+      _text(
+        canvas,
+        place.emoji,
+        center + Offset(-9, -11),
+        place.color,
+        size: 17,
+      );
+      _text(
+        canvas,
+        place.name,
+        center + const Offset(10, -6),
+        place.color,
+        size: 11,
+        chip: true,
+      );
+    }
   }
 
   void _drawPlaces(Canvas canvas, Size size) {

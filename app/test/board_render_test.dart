@@ -159,6 +159,45 @@ void main() {
     await _save(image, 'board_centrado.png');
   });
 
+  test('el punto de la universidad lleva anillo verde de 50 m y emoji', () async {
+    const size = Size(400, 700);
+    const lat = 19.31497222;
+    const lon = -103.75877778;
+    final seeded = await _seedTiles(MapLayerId.oscuro, lat, lon, radius: 3);
+    expect(seeded, greaterThan(4));
+
+    final viewport = MapViewport(centerLat: lat, centerLon: lon, zoom: 16);
+    final state = AppState()..selfId = 2001;
+    final (image, rgba) = await _paintBoard(state, viewport, size);
+    await _save(image, 'board_universidad.png');
+
+    // El anillo de 50 m debe estar donde toca: 50 m a la derecha del centro.
+    final radiusPx = 50 / viewport.metersPerPixel;
+    expect(radiusPx, greaterThan(4));
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    int pixelAt(double dx) {
+      final x = (cx + dx).round().clamp(0, size.width.toInt() - 1);
+      final y = cy.round().clamp(0, size.height.toInt() - 1);
+      final i = (y * size.width.toInt() + x) * 4;
+      return (rgba[i] << 16) | (rgba[i + 1] << 8) | rgba[i + 2];
+    }
+
+    // Busca un píxel verde (G dominante) sobre el borde del anillo.
+    var foundGreen = false;
+    for (var dx = radiusPx - 2; dx <= radiusPx + 2; dx++) {
+      for (final dy in <double>[-1, 0, 1]) {
+        final x = (cx + dx).round().clamp(0, size.width.toInt() - 1);
+        final y = (cy + dy).round().clamp(0, size.height.toInt() - 1);
+        final i = (y * size.width.toInt() + x) * 4;
+        final r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+        if (g > 120 && g > r + 30 && g > b + 30) foundGreen = true;
+      }
+    }
+    expect(foundGreen, isTrue, reason: 'no se encontró el anillo verde de 50 m');
+    expect(pixelAt(0), isNot(0x0B0F14));
+  });
+
   test('dibuja pares, eventos y alertas encima del mapa', () async {
     const size = Size(400, 700);
     await _seedTiles(MapLayerId.oscuro, 19.2433, -103.7247);

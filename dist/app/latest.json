@@ -1,9 +1,9 @@
 {
-    "version":  "0.4.0",
-    "version_code":  10,
+    "version":  "0.4.1",
+    "version_code":  11,
     "apk":  "openterritorio.apk",
-    "size_bytes":  103594005,
-    "sha256":  "e20ed5e1cee558f8e56ceb32a92d68c0dec7ef6652eec955d6a442082a434c29",
-    "notes":  "Tres capas offline de todo Colima (Esri oscuro, OpenStreetMap, INEGI), zoom real por teselas y boton centrar en mi ubicacion",
-    "published_at":  "2026-11-24T05:45:19.0991604Z"
+    "size_bytes":  103594001,
+    "sha256":  "44eff5d8a705bf72cbbe33d0346e1d537dcbe732eeb6e93807f7b2f6b990b902",
+    "notes":  "Punto de la universidad con emoji y anillo verde de 50 m",
+    "published_at":  "2026-11-24T06:44:35.1134854Z"
 }
