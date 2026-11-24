@@ -5,7 +5,11 @@ param(
   [string]$Apk,
   [string]$Flutter = 'flutter',
   [switch]$SkipBuild,
-  [switch]$NoPush
+  [switch]$NoPush,
+  # Publicación remota por HTTPS (no necesita cable ni adb).
+  [switch]$Remote,
+  [string]$RemoteUrl = 'https://tienda.tlalchichi.xyz',
+  [string]$Token = $env:OPENTERITORIO_TOKEN
 )
 
 $ErrorActionPreference = 'Stop'
@@ -58,9 +62,28 @@ $json = $manifest | ConvertTo-Json
 # Sin BOM: JSON.parse del backend fallaría con el BOM que añade PowerShell 5.1.
 [System.IO.File]::WriteAllText($manifestPath, $json, (New-Object System.Text.UTF8Encoding($false)))
 
-if (-not $NoPush) {
+if ($Remote) {
+  if (-not $Token) { throw 'Indica -Token o define la variable OPENTERITORIO_TOKEN.' }
+  $base = $RemoteUrl.TrimEnd('/')
+  $query = 'version={0}&version_code={1}&sha256={2}&notes={3}' -f `
+    $Version, $BuildNumber, $sha, [uri]::EscapeDataString($Notes)
+  Write-Host ("Subiendo {0} MB a {1} ..." -f ([math]::Round($size / 1MB, 1)), $base)
+  $response = Invoke-WebRequest -Uri "$base/api/app/upload?$query" `
+    -Method Post -InFile $targetApk -ContentType 'application/octet-stream' `
+    -Headers @{ Authorization = 'Bearer ' + $Token } -TimeoutSec 1800 -UseBasicParsing
+  $body = $response.Content | ConvertFrom-Json
+  if ($response.StatusCode -ne 201) { throw "subida HTTP $($response.StatusCode)" }
+  if ($body.sha256 -ne $sha) { throw 'el servidor devolvió un sha256 distinto' }
+  # Verificación independiente: lo que sirve /api/app/latest es lo que acaba de subirse.
+  $latest = Invoke-RestMethod -Uri "$base/api/app/latest" `
+    -Headers @{ Authorization = 'Bearer ' + $Token } -TimeoutSec 120
+  if ($latest.version_code -ne $BuildNumber -or $latest.sha256 -ne $sha) {
+    throw 'la verificación contra /api/app/latest falló'
+  }
+  Write-Host ("Publicado por HTTPS: v{0} (code {1}), {2} bytes" -f $latest.version, $latest.version_code, $latest.size_bytes)
+} elseif (-not $NoPush) {
   $device = (& adb devices) | Select-String 'device$'
-  if (-not $device) { throw 'No hay dispositivo ADB conectado.' }
+  if (-not $device) { throw 'No hay dispositivo ADB conectado (usa -Remote para publicar por HTTPS).' }
   $remote = '/sdcard/Download/openterritorio-app'
   $stamp = (Get-Date -Format 'yyyyMMdd-HHmmss') + "-v$Version-$BuildNumber"
   $stampFile = Join-Path $dist 'app.stamp'

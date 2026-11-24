@@ -49,6 +49,8 @@ function buildConfig(overrides = {}) {
     appDir: path.resolve(process.cwd(), process.env.APP_DIR || 'app'),
     maxClients: num(process.env.MAX_CLIENTS, 200),
     maxPayloadBytes: num(process.env.MAX_PAYLOAD_BYTES, 4096),
+    // APK por OTA subido desde el PC (400 MB cubre de sobra el mapa completo).
+    maxUploadBytes: num(process.env.MAX_UPLOAD_BYTES, 400 * 1024 * 1024),
     seenTtlMs: num(process.env.SEEN_TTL_MS, 24 * 60 * 60 * 1000),
     trackTtlMs: num(process.env.TRACK_TTL_MS, 7 * 24 * 60 * 60 * 1000),
     eventTtlMs: num(process.env.EVENT_TTL_MS, 30 * 24 * 60 * 60 * 1000),

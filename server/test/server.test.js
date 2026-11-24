@@ -404,6 +404,80 @@ test('prune purga eventos, alertas y pares caducados (no solo tracks)', async ()
   }
 });
 
+test('OTA: subida remota por HTTPS con token actualiza el manifiesto', async () => {
+  const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openterritorio-upload-'));
+  const server = await startServer({ appDir });
+  const apk = Buffer.from('APK-SUBIDO-POR-HTTPS-0123456789');
+  const sha256 = crypto.createHash('sha256').update(apk).digest('hex');
+  try {
+    const url = `${server.url}/api/app/upload?version=9.9.9&version_code=99&sha256=${sha256}&notes=subida%20remota`;
+    const uploaded = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + TOKEN,
+        'Content-Type': 'application/octet-stream',
+      },
+      body: apk,
+    });
+    assert.equal(uploaded.status, 201);
+    const body = await uploaded.json();
+    assert.equal(body.version, '9.9.9');
+    assert.equal(body.size_bytes, apk.length);
+    assert.equal(body.sha256, sha256);
+
+    const latest = await getJson(server.url, '/api/app/latest');
+    assert.equal(latest.status, 200);
+    assert.equal(latest.body.version_code, 99);
+    assert.equal(latest.body.notes, 'subida remota');
+
+    const download = await fetch(`${server.url}/api/app/download`, {
+      headers: { Authorization: 'Bearer ' + TOKEN },
+    });
+    assert.equal(download.status, 200);
+    assert.deepEqual(Buffer.from(await download.arrayBuffer()), apk);
+  } finally {
+    await server.close();
+    fs.rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+test('OTA: la subida remota rechaza sha256 incorrecto y token ausente', async () => {
+  const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openterritorio-upload-bad-'));
+  const server = await startServer({ appDir });
+  const apk = Buffer.from('APK-DISTINTO');
+  const wrong = 'a'.repeat(64);
+  try {
+    const bad = await fetch(
+      `${server.url}/api/app/upload?version=1.0.0&version_code=1&sha256=${wrong}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + TOKEN,
+          'Content-Type': 'application/octet-stream',
+        },
+        body: apk,
+      },
+    );
+    assert.equal(bad.status, 400);
+    assert.equal((await bad.json()).error, 'sha256 no coincide');
+    assert.equal(fs.existsSync(path.join(appDir, 'latest.json')), false);
+
+    const sha = crypto.createHash('sha256').update(apk).digest('hex');
+    const anon = await fetch(
+      `${server.url}/api/app/upload?version=1.0.0&version_code=1&sha256=${sha}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: apk,
+      },
+    );
+    assert.equal(anon.status, 401);
+  } finally {
+    await server.close();
+    fs.rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
 test('un cliente que inunda el WebSocket se cierra con 1008', async () => {
   const server = await startServer({ wsRateMax: 5, wsRateWindowMs: 60000 });
   const client = await connect(server.wsUrl);

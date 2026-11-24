@@ -3,6 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { Transform } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 const express = require('express');
 const proto = require('./proto');
 const pkg = require('../package.json');
@@ -341,6 +343,96 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
     return res.sendFile(release.apk_path, (err) => {
       if (err && !res.headersSent) next(err);
     });
+  });
+
+  /**
+   * Publica una versión nueva por HTTPS (mismo token que el resto de /api).
+   *
+   * `POST /api/app/upload?version=0.4.0&version_code=10&sha256=…&notes=…`
+   * con el APK en el cuerpo (`Content-Type: application/octet-stream`).
+   *
+   * Se escribe en streaming a `appDir/openterritorio.apk.part`, se verifica el
+   * sha256 en el servidor y solo entonces se renombra y se actualiza el
+   * manifiesto: un corte a mitad no deja una versión rota publicada.
+   */
+  app.post('/api/app/upload', async (req, res) => {
+    const version = String(req.query.version || '');
+    const versionCode = Number(req.query.version_code);
+    const expected = String(req.query.sha256 || '').toLowerCase();
+    const notes = String(req.query.notes || '');
+
+    if (!/^\d+\.\d+\.\d+$/.test(version)) {
+      return res.status(400).json({ ok: false, error: 'version debe ser X.Y.Z' });
+    }
+    if (!Number.isInteger(versionCode) || versionCode <= 0) {
+      return res.status(400).json({ ok: false, error: 'version_code inválido' });
+    }
+    if (!/^[0-9a-f]{64}$/.test(expected)) {
+      return res.status(400).json({ ok: false, error: 'sha256 del APK requerido (64 hex)' });
+    }
+
+    const limit = config.maxUploadBytes;
+    const apkName = 'openterritorio.apk';
+    const finalPath = path.join(config.appDir, apkName);
+    const partPath = path.join(config.appDir, `${apkName}.part`);
+    let bytes = 0;
+
+    try {
+      fs.mkdirSync(config.appDir, { recursive: true });
+      const hash = crypto.createHash('sha256');
+      const meter = new Transform({
+        transform(chunk, _encoding, callback) {
+          bytes += chunk.length;
+          if (bytes > limit) {
+            callback(new Error('too large'));
+            return;
+          }
+          hash.update(chunk);
+          callback(null, chunk);
+        },
+      });
+
+      await pipeline(req, meter, fs.createWriteStream(partPath));
+
+      const digest = hash.digest('hex');
+      if (digest !== expected) {
+        fs.rmSync(partPath, { force: true });
+        return res.status(400).json({
+          ok: false,
+          error: 'sha256 no coincide',
+          esperado: expected,
+          recibido: digest,
+        });
+      }
+
+      fs.renameSync(partPath, finalPath);
+      const manifest = {
+        version,
+        version_code: versionCode,
+        apk: apkName,
+        size_bytes: bytes,
+        sha256: digest,
+        notes,
+        published_at: new Date().toISOString(),
+      };
+      fs.writeFileSync(
+        path.join(config.appDir, 'latest.json'),
+        `${JSON.stringify(manifest, null, 2)}\n`,
+        'utf8',
+      );
+      log.info('apk publicado por upload', { version, version_code: versionCode, size_bytes: bytes });
+      return res.status(201).json({ ok: true, ...manifest });
+    } catch (err) {
+      fs.rmSync(partPath, { force: true });
+      if (err && err.message === 'too large') {
+        return res.status(413).json({
+          ok: false,
+          error: `APK mayor que ${Math.round(limit / 1048576)} MB`,
+        });
+      }
+      log.warn('upload falló', { err: err.message });
+      return res.status(500).json({ ok: false, error: 'no se pudo guardar el APK' });
+    }
   });
 
   app.post('/api/packets', (req, res) => {
