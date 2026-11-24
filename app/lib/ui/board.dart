@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:material_ui/material_ui.dart';
 
 import '../data/app_state.dart';
+import '../data/vectors.dart';
 
 /// Capas de mapa offline disponibles.
 enum MapLayerId {
@@ -214,6 +215,9 @@ class _TacticalBoardState extends State<TacticalBoard> {
     super.initState();
     OfflineTiles.revision.addListener(_refresh);
     widget.viewport.addListener(_refresh);
+    // Vías y topónimos vectoriales (INEGI): se siguen leyendo sin bloquear el
+    // primer cuadro y, al terminar, el tablero se repinta con texto nítido.
+    VectorData.load().then((_) => _refresh());
   }
 
   void _refresh() {
@@ -298,7 +302,9 @@ class BoardPainter extends CustomPainter {
       );
     }
 
+    _drawRoads(canvas, size);
     _drawPlaces(canvas, size);
+    _drawStreetNames(canvas, size);
     _drawLandmarks(canvas, size);
 
     for (final alert in state.alerts) {
@@ -529,21 +535,149 @@ class BoardPainter extends CustomPainter {
     }
   }
 
+  static const _roadCarretera = Color(0xFFFFC24B);
+  static const _roadCalle = Color(0xFF9AB0C8);
+  static const _roadCamino = Color(0xFF7C8B9C);
+
+  /// Vías del INEGI dibujadas como líneas: se mantienen finas y rectas a
+  /// cualquier zoom, sin el dentado del ráster ampliado.
+  void _drawRoads(Canvas canvas, Size size) {
+    if (!VectorData.ready) return;
+    final zoom = viewport.zoom;
+    if (zoom < 10.5) return;
+
+    final northWest = viewport.geoAt(Offset.zero, size);
+    final southEast = viewport.geoAt(Offset(size.width, size.height), size);
+
+    Paint stroke(Color color, double width) => Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = color;
+
+    final carretera = stroke(_roadCarretera.withValues(alpha: 0.85), zoom >= 13 ? 2.6 : 1.5);
+    final calle = stroke(_roadCalle.withValues(alpha: zoom >= 15 ? 0.55 : 0.32), zoom >= 15 ? 2.0 : 1.1);
+    final camino = stroke(_roadCamino.withValues(alpha: 0.30), 1.0);
+
+    for (final via in VectorData.viasIn(northWest.lon, southEast.lat, southEast.lon, northWest.lat)) {
+      // Las calles solo de cerca y las veredas solo de lejos: si no, se tapa el mapa.
+      if (via.kind == 0 && zoom < 13.2) continue;
+      if (via.kind == 2 && zoom > 15.5) continue;
+
+      final path = Path();
+      for (var i = 0; i < via.points; i++) {
+        final geo = via.pointAt(i);
+        final at = viewport.project(geo.dy, geo.dx, size);
+        if (i == 0) {
+          path.moveTo(at.dx, at.dy);
+        } else {
+          path.lineTo(at.dx, at.dy);
+        }
+      }
+      canvas.drawPath(path, via.kind == 1 ? carretera : (via.kind == 2 ? camino : calle));
+    }
+  }
+
+  /// Nombres de calle nítidos a zoom alto, girados con la propia vía.
+  void _drawStreetNames(Canvas canvas, Size size) {
+    if (!VectorData.ready || viewport.zoom < 15.8) return;
+    final northWest = viewport.geoAt(Offset.zero, size);
+    final southEast = viewport.geoAt(Offset(size.width, size.height), size);
+
+    final ocupado = _LabelGrid(size);
+    var dibujadas = 0;
+    for (final via in VectorData.viasIn(northWest.lon, southEast.lat, southEast.lon, northWest.lat)) {
+      if (via.name.isEmpty || via.points < 6) continue;
+      if (dibujadas >= 40) break;
+
+      final a = via.pointAt(via.points ~/ 2);
+      final b = via.pointAt(math.min(via.points ~/ 2 + 1, via.points - 1));
+      final pa = viewport.project(a.dy, a.dx, size);
+      final pb = viewport.project(b.dy, b.dx, size);
+      if (!size.contains(pa)) continue;
+      if (!ocupado.tomar(pa, via.name.length * 5.2)) continue;
+
+      var angle = math.atan2(pb.dy - pa.dy, pb.dx - pa.dx);
+      if (angle > math.pi / 2) angle -= math.pi;
+      if (angle < -math.pi / 2) angle += math.pi;
+
+      final painter = TextPainter(
+        text: TextSpan(
+          text: via.name,
+          style: const TextStyle(
+            color: Color(0xFFD7E3F2),
+            fontSize: 9.5,
+            shadows: [Shadow(color: Color(0xEE000000), blurRadius: 3)],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      canvas.save();
+      canvas.translate(pa.dx, pa.dy);
+      canvas.rotate(angle);
+      painter.paint(canvas, Offset(-painter.width / 2, -painter.height - 1));
+      canvas.restore();
+      dibujadas++;
+    }
+  }
+
   void _drawPlaces(Canvas canvas, Size size) {
-    const places = <(String, double, double)>[
-      ('COLIMA', 19.2433, -103.7247),
-      ('VILLA DE ÁLVAREZ', 19.2647, -103.7444),
-      ('COMALA', 19.3237, -103.7600),
-      ('MANZANILLO', 19.1138, -104.3267),
-      ('TECOMÁN', 18.9108, -103.8747),
-      ('ARMERÍA', 18.9383, -103.9642),
-      ('VOLCÁN DE COLIMA', 19.5144, -103.6186),
-    ];
-    for (final (name, lat, lon) in places) {
-      final at = viewport.project(lat, lon, size);
-      if (at.dx < -120 || at.dx > size.width + 120) continue;
-      if (at.dy < -20 || at.dy > size.height + 20) continue;
-      _text(canvas, name, at + const Offset(5, -5), _muted, size: 10, shadow: true);
+    if (!VectorData.ready) {
+      // Respaldo si los vectores no cargaron: las cabeceras a mano.
+      const places = <(String, double, double)>[
+        ('COLIMA', 19.2433, -103.7247),
+        ('VILLA DE ÁLVAREZ', 19.2647, -103.7444),
+        ('COMALA', 19.3237, -103.7600),
+        ('MANZANILLO', 19.1138, -104.3267),
+        ('TECOMÁN', 18.9108, -103.8747),
+        ('ARMERÍA', 18.9383, -103.9642),
+        ('VOLCÁN DE COLIMA', 19.5144, -103.6186),
+      ];
+      for (final (name, lat, lon) in places) {
+        final at = viewport.project(lat, lon, size);
+        if (at.dx < -120 || at.dx > size.width + 120) continue;
+        if (at.dy < -20 || at.dy > size.height + 20) continue;
+        _text(canvas, name, at + const Offset(5, -5), _muted, size: 10, shadow: true);
+      }
+      return;
+    }
+
+    final zoom = viewport.zoom;
+    final northWest = viewport.geoAt(Offset.zero, size);
+    final southEast = viewport.geoAt(Offset(size.width, size.height), size);
+    // De lejos solo las ciudades; al acercarse aparecen colonias y ranchos.
+    final minHab = zoom >= 13.2 ? 0 : (zoom >= 11.5 ? 400 : (zoom >= 10.2 ? 5000 : 20000));
+
+    final locs = VectorData.localidadesIn(
+      northWest.lon,
+      southEast.lat,
+      southEast.lon,
+      northWest.lat,
+    ).where((l) => l.habitantes >= minHab).toList()
+      ..sort((a, b) => b.habitantes.compareTo(a.habitantes));
+
+    final ocupado = _LabelGrid(size);
+    var dibujadas = 0;
+    for (final localidad in locs) {
+      if (dibujadas >= 45) break;
+      final at = viewport.project(localidad.lat, localidad.lon, size);
+      if (!size.contains(at)) continue;
+      final grande = localidad.habitantes >= 20000;
+      final ancho = localidad.name.length * (grande ? 7.6 : 5.6);
+      if (!ocupado.tomar(at, ancho)) continue;
+      final color = grande
+          ? const Color(0xFFF2F7FF)
+          : (localidad.urbana ? const Color(0xFFC9D8EA) : _muted);
+      _text(
+        canvas,
+        localidad.name,
+        at + const Offset(4, -15),
+        color,
+        size: grande ? 13 : (localidad.urbana ? 11 : 9.5),
+        shadow: true,
+      );
+      dibujadas++;
     }
   }
 
@@ -586,9 +720,12 @@ class BoardPainter extends CustomPainter {
   }
 
   void _drawAttribution(Canvas canvas, Size size) {
+    final creditos = VectorData.ready
+        ? '${viewport.layer.attribution} · vías y nombres © INEGI 1:50 000'
+        : viewport.layer.attribution;
     final painter = TextPainter(
       text: TextSpan(
-        text: viewport.layer.attribution,
+        text: creditos,
         style: TextStyle(
           color: _muted,
           fontSize: 8,
@@ -697,4 +834,28 @@ class BoardPainter extends CustomPainter {
       oldDelegate.state != state ||
       oldDelegate.viewport != viewport ||
       oldDelegate.fontFamily != fontFamily;
+}
+
+/// Rejilla de etiquetas: evita encimar nombres en pantalla.
+class _LabelGrid {
+  _LabelGrid(this.size);
+
+  final Size size;
+  final Set<int> _tomadas = <int>{};
+  static const double _w = 74;
+  static const double _h = 21;
+
+  /// Devuelve false si la etiqueta caería encima de otra ya dibujada.
+  bool tomar(Offset at, double ancho) {
+    final cols = math.max(1, (size.width / _w).ceil());
+    final fila = (at.dy / _h).floor();
+    final col = (at.dx / _w).floor();
+    final extra = ancho > _w ? 1 : 0;
+    final keys = <int>[for (var dx = 0; dx <= extra; dx++) fila * cols + col + dx];
+    for (final key in keys) {
+      if (_tomadas.contains(key)) return false;
+    }
+    _tomadas.addAll(keys);
+    return true;
+  }
 }

@@ -1,9 +1,9 @@
 {
-  "version": "0.6.0",
-  "version_code": 16,
+  "version": "0.7.0",
+  "version_code": 17,
   "apk": "openterritorio.apk",
-  "size_bytes": 98091298,
-  "sha256": "b3404b466a82fb6bcfa0db9c04a706e914631f75a722b10cdfa4132a5a07f505",
-  "notes": "Mapa con mas resolucion: z15 en todo el estado y z16-z17 en Colima y Villa de Alvarez",
+  "size_bytes": 98628149,
+  "sha256": "1c79f817563d0600439a3b04c1d7c599fc23d5dc0db08a49121b08d793ed24e7",
+  "notes": "Vias y toponimos del INEGI 1:50 000 vectoriales: calles, carreteras y nombres nitidos a cualquier zoom",
   "published_at": "2026-11-24T19:24:38.8227984Z"
 }

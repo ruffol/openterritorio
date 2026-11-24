@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:openterritorio/data/app_state.dart';
 import 'package:openterritorio/data/landmarks.dart';
+import 'package:openterritorio/data/vectors.dart';
 import 'package:openterritorio/ui/board.dart';
 
 /// Fuente real para la previsualización: en `flutter test` el motor usa una
@@ -277,6 +278,34 @@ void main() {
       if (r > 110 && r > g + 35 && g > b + 15 && b < 110) foundBrown = true;
     }
     expect(foundBrown, isTrue, reason: 'no se encontró el anillo café de 100 m');
+  });
+
+
+  test('los vectores del INEGI cargan y pintan vías sobre el ráster', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    await VectorData.load();
+    expect(VectorData.ready, isTrue, reason: 'no se pudieron leer los assets vectoriales');
+    expect(VectorData.vias.length, greaterThan(5000));
+    expect(VectorData.localidades.length, greaterThan(1500));
+
+    const size = Size(500, 800);
+    await _seedTiles(MapLayerId.oscuro, 19.2437, -103.7247, radius: 3);
+    final viewport = MapViewport()..goTo(19.2437, -103.7247, zoom: 16);
+    final state = AppState()..selfId = 4001;
+
+    final enVista = VectorData.viasIn(-103.75, 19.235, -103.70, 19.255).length;
+    expect(enVista, greaterThan(20), reason: 'el índice por celdas no devuelve vías del centro');
+
+    final (image, rgba) = await _paintBoard(state, viewport, size);
+    await _save(image, 'board_vectores.png');
+
+    // Las calles se pintan en gris azulado claro (#9AB0C8) sobre el mapa oscuro.
+    var claros = 0;
+    for (var i = 0; i < rgba.length; i += 4) {
+      final r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+      if (r > 120 && g > 150 && b > 165 && b >= r) claros++;
+    }
+    expect(claros, greaterThan(200), reason: 'no aparecen trazos de vías vectoriales');
   });
 
   test('dibuja pares, eventos y alertas encima del mapa', () async {

@@ -22,3 +22,4 @@ app/android/local.properties
 .idea/
 *.iml
 app/.tile-stash/
+tools/.vector/
