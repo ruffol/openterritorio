@@ -23,3 +23,6 @@ app/android/local.properties
 *.iml
 app/.tile-stash/
 tools/.vector/
+tools/noticias/noticias.json
+tools/noticias/*.tmp
+notas-tmp.json
