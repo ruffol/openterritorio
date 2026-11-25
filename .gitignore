@@ -27,3 +27,5 @@ tools/noticias/noticias.json
 tools/noticias/*.tmp
 notas-tmp.json
 tools/noticias/.fb_cookie
+server/src.bak/
+*.png
