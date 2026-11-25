@@ -75,6 +75,9 @@ async function publicarEvento(nota) {
       category_id: nota.categoria,
       short_note: nota.etiqueta,
       ttl_horas: TTL_HORAS,
+      // Cita para el detalle del marcador y los medios que la publicaron.
+      texto: (nota.texto || '').slice(0, 600),
+      fuentes: nota.fuentes && nota.fuentes.length > 0 ? nota.fuentes : [nota.fuente],
     }),
   });
   if (!respuesta.ok) {
@@ -108,8 +111,13 @@ async function main() {
     }
     const { estado, nota: guardada } = db.agregar(nota);
     let publicado = null;
-    if (push && estado === 'nueva') {
+    // Se publica la primera vez y, una sola vez más, si la nota guardada aún no
+    // llevaba la cita completa (las que entraron antes de existir el detalle).
+    const faltaCita = estado === 'repetida' && !guardada.publicadaConTexto;
+    if (push && (estado === 'nueva' || faltaCita)) {
       publicado = await publicarEvento(guardada);
+      guardada.publicadaConTexto = true;
+      db.guardar();
     }
     resumen.push({
       estado,

@@ -427,6 +427,62 @@ class _HomePageState extends State<HomePage> {
     if (mounted) _showSnack('Avisos anteriores quitados del mapa.');
   }
 
+  /// Detalle de una nota al tocar su marcador: la cita completa y las fuentes.
+  void _mostrarNota(EventMarker evento) {
+    final cuando = evento.ts > 0
+        ? DateTime.fromMillisecondsSinceEpoch(evento.ts * 1000)
+            .toLocal()
+            .toString()
+            .substring(0, 16)
+        : 'sin hora';
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(evento.note.isEmpty ? 'Suceso' : evento.note),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                cuando,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+              const SizedBox(height: 10),
+              SelectableText(
+                evento.texto.isEmpty
+                    ? 'Sin cita guardada para este evento.'
+                    : evento.texto,
+                style: const TextStyle(fontSize: 13, height: 1.35),
+              ),
+              if (evento.fuentes.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text(
+                  evento.fuentes.length > 1
+                      ? 'Publicada por ${evento.fuentes.length} fuentes'
+                      : 'Fuente',
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+                const SizedBox(height: 4),
+                for (final fuente in evento.fuentes)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text('· $fuente', style: const TextStyle(fontSize: 12)),
+                  ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showAbout() async {
     final info = await OtaChannel.currentVersion();
     if (!mounted) return;
@@ -528,7 +584,11 @@ class _HomePageState extends State<HomePage> {
           return Column(
             children: [
               Expanded(
-                child: TacticalBoard(state: _state, viewport: _viewport),
+                child: TacticalBoard(
+                  state: _state,
+                  viewport: _viewport,
+                  onEventTap: _mostrarNota,
+                ),
               ),
               StatusBar(state: _state),
             ],

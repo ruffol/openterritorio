@@ -71,6 +71,8 @@ class EventMarker {
     this.categoryId = 0,
     this.note = '',
     this.ts = 0,
+    this.texto = '',
+    this.fuentes = const <String>[],
   });
 
   final String id;
@@ -80,6 +82,10 @@ class EventMarker {
   final String note;
   final int ts;
 
+  /// Cita de la nota periodística y medios que la publicaron.
+  final String texto;
+  final List<String> fuentes;
+
   factory EventMarker.fromPacket(TacticalPacket packet, EventPayload payload) {
     return EventMarker(
       id: packet.packetIdHex,
@@ -88,6 +94,8 @@ class EventMarker {
       categoryId: payload.categoryId,
       note: payload.shortNote,
       ts: packet.timestamp,
+      texto: '',
+      fuentes: const <String>[],
     );
   }
 
@@ -100,6 +108,11 @@ class EventMarker {
       categoryId: _asInt(json['category_id']),
       note: json['short_note']?.toString() ?? '',
       ts: _asInt(json['ts']),
+      texto: json['texto']?.toString() ?? '',
+      fuentes: [
+        for (final f in (json['fuentes'] is List ? json['fuentes'] as List : const []))
+          if (f is String && f.isNotEmpty) f,
+      ],
     );
   }
 }

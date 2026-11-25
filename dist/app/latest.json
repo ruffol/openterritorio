@@ -1,10 +1,10 @@
 {
-  "version": "0.8.2",
-  "version_code": 21,
+  "version": "0.9.0",
+  "version_code": 22,
   "apk": "openterritorio.apk",
-  "size_bytes": 81565727,
-  "sha256": "c92f35b1b84aa16d0b8b003a5356a13c93c7da60061946a5eb5b29f67f36db57",
-  "notes": "Boton para quitar los avisos viejos del mapa (punto de reunion 1001, cierre de camino 1000...) y solo quedan tus puntos",
-  "published_at": "2026-11-25T03:55:45.712291Z",
+  "size_bytes": 81582107,
+  "sha256": "7793cb1f898b09bcf31fe60ff78c22f558aea65e7682a1f10a51af43285c069e",
+  "notes": "Toca un evento y veras la cita completa de la nota y cuantas fuentes la publicaron; fuera equipos simulados",
+  "published_at": "2026-11-25T05:55:01.732201Z",
   "url": ""
 }

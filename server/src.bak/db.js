@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS events (
   short_note  TEXT,
   ts          INTEGER NOT NULL,
   created_ms  INTEGER NOT NULL,
-  expires_ms  INTEGER
+  expires_ms  INTEGER,
+  texto       TEXT,
+  fuentes     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_ms);
 
@@ -86,10 +88,12 @@ function openDatabase(dbPath) {
   db.exec('PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
   // Bases creadas antes de existir la caducidad por evento.
-  try {
-    db.exec('ALTER TABLE events ADD COLUMN expires_ms INTEGER');
-  } catch {
-    // la columna ya existe
+  for (const columna of ['expires_ms INTEGER', 'texto TEXT', 'fuentes TEXT']) {
+    try {
+      db.exec(`ALTER TABLE events ADD COLUMN ${columna}`);
+    } catch {
+      // la columna ya existe
+    }
   }
   return db;
 }
@@ -161,6 +165,10 @@ function createRepository(db) {
       'DELETE FROM events WHERE expires_ms IS NOT NULL AND expires_ms <= ?',
     ),
     setEventExpiry: db.prepare('UPDATE events SET expires_ms = ? WHERE packet_id = ?'),
+    setEventDetails: db.prepare('UPDATE events SET texto = ?, fuentes = ? WHERE packet_id = ?'),
+    deleteEvent: db.prepare('DELETE FROM events WHERE packet_id = ?'),
+    deletePeer: db.prepare('DELETE FROM peers WHERE sender_id = ?'),
+    deleteSimPeers: db.prepare("DELETE FROM peers WHERE transport = 'sim'"),
     pruneAlerts: db.prepare('DELETE FROM alerts WHERE created_ms < ?'),
     pruneAcks: db.prepare('DELETE FROM acks WHERE created_ms < ?'),
     prunePeers: db.prepare('DELETE FROM peers WHERE last_seen_ms < ?'),
@@ -324,6 +332,25 @@ function createRepository(db) {
     return statements.listAcks.all(Buffer.from(packetId)).map((row) => ({ ...row }));
   }
 
+  /** Texto completo de la nota y fuentes que la publicaron. */
+  function setEventDetails(packetId, texto, fuentes) {
+    return statements.setEventDetails.run(texto, JSON.stringify(fuentes || []), packetId);
+  }
+
+  function deleteEvent(packetId) {
+    return statements.deleteEvent.run(packetId);
+  }
+
+  /** Borra pares simulados (los de tools/sim.js); con ids, solo esos. */
+  function deletePeers(senderIds) {
+    if (Array.isArray(senderIds) && senderIds.length > 0) {
+      let total = 0;
+      for (const id of senderIds) total += Number(statements.deletePeer.run(id).changes);
+      return total;
+    }
+    return Number(statements.deleteSimPeers.run().changes);
+  }
+
   /** Fija cuándo deja de mostrarse un evento (notas con caducidad propia). */
   function setEventExpiry(packetId, expiresMs) {
     return statements.setEventExpiry.run(Math.round(expiresMs), packetId);
@@ -332,6 +359,9 @@ function createRepository(db) {
   return {
     markSeen,
     setEventExpiry,
+    setEventDetails,
+    deleteEvent,
+    deletePeers,
     upsertPeer,
     insertTrack,
     insertEvent,

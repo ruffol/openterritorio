@@ -685,6 +685,47 @@ test('un evento con ttl_horas desaparece cuando caduca', async () => {
   }
 });
 
+
+test('el evento guarda la cita y las fuentes, y se puede borrar', async () => {
+  const server = await startServer();
+  const headers = { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application/json' };
+  try {
+    const creado = await fetch(`${server.url}/api/events`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        lat: 19.2433,
+        lon: -103.7247,
+        category_id: 2,
+        short_note: 'Accidente vial · Colima (aprox)',
+        texto: 'Una camioneta volcó sobre el libramiento; el conductor fue trasladado.',
+        fuentes: ['afmedios', 'colimanoticias'],
+        ttl_horas: 24,
+      }),
+    });
+    assert.equal(creado.status, 201);
+
+    const lista = await getJson(server.url, '/api/events');
+    const evento = lista.body.events.find((e) => e.short_note.startsWith('Accidente vial · Colima'));
+    assert.ok(evento, 'el evento debe estar en la lista');
+    assert.match(evento.texto, /camioneta volcó/);
+    assert.deepEqual(evento.fuentes, ['afmedios', 'colimanoticias']);
+
+    const borrado = await fetch(`${server.url}/api/events/${evento.packet_id}`, {
+      method: 'DELETE',
+      headers,
+    });
+    assert.equal((await borrado.json()).borrados, 1);
+    const despues = await getJson(server.url, '/api/events');
+    assert.equal(
+      despues.body.events.filter((e) => e.packet_id === evento.packet_id).length,
+      0,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
 test('un cliente que inunda el WebSocket se cierra con 1008', async () => {
   const server = await startServer({ wsRateMax: 5, wsRateWindowMs: 60000 });
   const client = await connect(server.wsUrl);

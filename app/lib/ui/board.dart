@@ -198,7 +198,15 @@ class OfflineTiles {
 }
 
 class TacticalBoard extends StatefulWidget {
-  const TacticalBoard({super.key, required this.state, required this.viewport});
+  const TacticalBoard({
+    super.key,
+    required this.state,
+    required this.viewport,
+    this.onEventTap,
+  });
+
+  /// Se dispara al tocar un evento: la pantalla muestra la nota completa.
+  final void Function(EventMarker evento)? onEventTap;
 
   final AppState state;
   final MapViewport viewport;
@@ -256,6 +264,10 @@ class _TacticalBoardState extends State<TacticalBoard> {
             _lastFocal = details.localFocalPoint;
             _lastScale = details.scale;
           },
+          onTapUp: (details) {
+            final evento = _eventoEn(details.localPosition, size);
+            if (evento != null) widget.onEventTap?.call(evento);
+          },
           onDoubleTapDown: (details) => _doubleTapAt = details.localPosition,
           onDoubleTap: () {
             final at = _doubleTapAt ?? size.center(Offset.zero);
@@ -279,6 +291,21 @@ class _TacticalBoardState extends State<TacticalBoard> {
         );
       },
     );
+  }
+
+  /// Evento más cercano al toque (margen generoso para el dedo).
+  EventMarker? _eventoEn(Offset punto, Size size) {
+    EventMarker? mejor;
+    var menor = 30.0;
+    for (final evento in widget.state.events) {
+      final centro = widget.viewport.project(evento.lat, evento.lon, size);
+      final distancia = (centro - punto).distance;
+      if (distancia < menor) {
+        menor = distancia;
+        mejor = evento;
+      }
+    }
+    return mejor;
   }
 
   Offset? _doubleTapAt;

@@ -46,6 +46,17 @@ function eventJSON(row) {
     ts: row.ts,
     created_ms: row.created_ms,
     expires_ms: row.expires_ms ?? null,
+    // Cita de la nota periodística y medios que la publicaron.
+    texto: row.texto || '',
+    fuentes: (() => {
+      if (!row.fuentes) return [];
+      try {
+        const lista = JSON.parse(row.fuentes);
+        return Array.isArray(lista) ? lista : [];
+      } catch {
+        return [];
+      }
+    })(),
   };
 }
 
@@ -340,6 +351,14 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
       else if (Number.isFinite(milis) && milis > 0) expires = Date.now() + milis;
       if (expires !== null) {
         repo.setEventExpiry(packet.packet_id, Math.round(expires));
+      }
+      // La nota completa (para el detalle al tocar el marcador) y las fuentes.
+      const texto = truncateUtf8(String(body.texto || ''), 600);
+      const fuentes = Array.isArray(body.fuentes)
+        ? body.fuentes.filter((f) => typeof f === 'string').slice(0, 6).map((f) => f.slice(0, 120))
+        : [];
+      if (texto || fuentes.length > 0) {
+        repo.setEventDetails(packet.packet_id, texto, fuentes);
       }
       return res.status(201).json({
         ok: true,
@@ -711,6 +730,26 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
     }
     monitor.correrAhora();
     return res.status(202).json({ ok: true, mensaje: 'pasada en curso' });
+  });
+
+  // Borra un evento concreto (por packet_id) o todos los simulados.
+  app.delete('/api/events/:packetId', (req, res) => {
+    const crudo = String(req.params.packetId || '').toLowerCase();
+    if (!/^[0-9a-f]{2,32}$/.test(crudo)) {
+      return res.status(400).json({ ok: false, error: 'packet_id inválido' });
+    }
+    const cambios = repo.deleteEvent(Buffer.from(crudo, 'hex'));
+    res.json({ ok: true, borrados: Number(cambios.changes ?? cambios) });
+  });
+
+  // Limpia equipos fantasma: sin `sender_id` borra los marcados como 'sim'.
+  app.delete('/api/peers', (req, res) => {
+    const ids = String(req.query.sender_id || '')
+      .split(',')
+      .map((v) => Number(v.trim()))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    const borrados = repo.deletePeers(ids);
+    res.json({ ok: true, borrados });
   });
 
   app.post('/api/packets', (req, res) => {
