@@ -44,7 +44,12 @@ class NoticiasDB {
 
   /** Devuelve {estado:'nueva'|'duplicada'|'repetida', nota}. */
   agregar(nota) {
-    if (this.porId.has(nota.id)) return { estado: 'duplicada', nota: this.porClave.get(nota.clave) || nota };
+    if (this.porId.has(nota.id)) {
+      // Se devuelve el objeto guardado (no una copia) para que marcar
+      // `publicadaConDetalle` se escriba de verdad en disco.
+      const guardada = this.notas.find((n) => n.id === nota.id) || nota;
+      return { estado: 'duplicada', nota: guardada };
+    }
 
     const dia = nota.fecha_hecho.slice(0, 10);
     const clave = `${nota.tipo}|${nota.municipio}|${dia}`;

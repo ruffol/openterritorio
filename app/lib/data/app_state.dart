@@ -73,6 +73,8 @@ class EventMarker {
     this.ts = 0,
     this.texto = '',
     this.fuentes = const <String>[],
+    this.imagen = '',
+    this.enlace = '',
   });
 
   final String id;
@@ -86,6 +88,10 @@ class EventMarker {
   final String texto;
   final List<String> fuentes;
 
+  /// Foto de la nota y enlace para leerla completa.
+  final String imagen;
+  final String enlace;
+
   factory EventMarker.fromPacket(TacticalPacket packet, EventPayload payload) {
     return EventMarker(
       id: packet.packetIdHex,
@@ -96,6 +102,8 @@ class EventMarker {
       ts: packet.timestamp,
       texto: '',
       fuentes: const <String>[],
+      imagen: '',
+      enlace: '',
     );
   }
 
@@ -109,6 +117,8 @@ class EventMarker {
       note: json['short_note']?.toString() ?? '',
       ts: _asInt(json['ts']),
       texto: json['texto']?.toString() ?? '',
+      imagen: json['imagen']?.toString() ?? '',
+      enlace: json['enlace']?.toString() ?? '',
       fuentes: [
         for (final f in (json['fuentes'] is List ? json['fuentes'] as List : const []))
           if (f is String && f.isNotEmpty) f,

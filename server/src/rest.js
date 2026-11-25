@@ -48,6 +48,8 @@ function eventJSON(row) {
     expires_ms: row.expires_ms ?? null,
     // Cita de la nota periodística y medios que la publicaron.
     texto: row.texto || '',
+    imagen: row.imagen || '',
+    enlace: row.enlace || '',
     fuentes: (() => {
       if (!row.fuentes) return [];
       try {
@@ -251,6 +253,28 @@ function readLandmarks(config) {
 let bootedAt = Date.now();
 let lastDeploy = null;
 
+
+/** Saca la imagen social (og:image) de una nota; vacío si no la hay. */
+async function imagenDeNota(url) {
+  if (!url || !/^https?:/i.test(url)) return '';
+  try {
+    const respuesta = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; openterritorio/1.0)' },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(9000),
+    });
+    if (!respuesta.ok) return '';
+    const html = await respuesta.text();
+    const m =
+      html.match(/<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["']/i) ||
+      html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i);
+    if (!m) return '';
+    return new URL(m[1], url).toString().slice(0, 400);
+  } catch {
+    return '';
+  }
+}
+
 function createHttpApp({
   config,
   repo,
@@ -368,8 +392,23 @@ function createHttpApp({
       const fuentes = Array.isArray(body.fuentes)
         ? body.fuentes.filter((f) => typeof f === 'string').slice(0, 6).map((f) => f.slice(0, 120))
         : [];
-      if (texto || fuentes.length > 0) {
-        repo.setEventDetails(packet.packet_id, texto, fuentes);
+      const imagen = String(body.imagen || '').slice(0, 400);
+      const enlace = String(body.enlace || '').slice(0, 400);
+      if (texto || fuentes.length > 0 || imagen || enlace) {
+        repo.setEventDetails(packet.packet_id, { texto, fuentes, imagen, enlace });
+      }
+
+      // Si la nota no trajo foto, se busca el og:image aquí mismo. Va sin
+      // await: la respuesta al monitor no espera a la otra web.
+      if (!imagen && enlace) {
+        const packetId = Buffer.from(packet.packet_id);
+        imagenDeNota(enlace)
+          .then((foto) => {
+            if (!foto) return;
+            repo.setEventDetails(packetId, { texto, fuentes, imagen: foto, enlace });
+            log.info('imagen de la nota añadida', { enlace: enlace.slice(0, 80) });
+          })
+          .catch(() => {});
       }
       return res.status(201).json({
         ok: true,
@@ -733,6 +772,24 @@ function createHttpApp({
   app.get('/api/admin/monitor', (req, res) => {
     const estado = typeof monitor?.estado === 'function' ? monitor.estado() : { habilitado: false, log: 'monitor apagado' };
     res.json({ ok: true, ...estado });
+  });
+
+  // Reinicia la base del monitor: la próxima pasada vuelve a leer las notas
+  // desde cero (útil cuando cambia la forma de guardar el detalle).
+  app.post('/api/admin/monitor/reset', (req, res) => {
+    const appRoot = fs.existsSync(path.join(process.cwd(), 'logs'))
+      ? process.cwd()
+      : path.resolve(process.cwd(), '..');
+    const borrados = [];
+    for (const nombre of ['noticias.json', 'notas.json']) {
+      const archivo = path.join(appRoot, nombre);
+      if (fs.existsSync(archivo)) {
+        fs.rmSync(archivo, { force: true });
+        borrados.push(nombre);
+      }
+    }
+    log.warn('base del monitor reiniciada', { borrados });
+    res.json({ ok: true, borrados });
   });
 
   // Forzar una pasada ahora (útil tras desplegar).

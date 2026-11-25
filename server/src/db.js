@@ -43,7 +43,9 @@ CREATE TABLE IF NOT EXISTS events (
   created_ms  INTEGER NOT NULL,
   expires_ms  INTEGER,
   texto       TEXT,
-  fuentes     TEXT
+  fuentes     TEXT,
+  imagen      TEXT,
+  enlace      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_ms);
 
@@ -88,7 +90,13 @@ function openDatabase(dbPath) {
   db.exec('PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
   // Bases creadas antes de existir la caducidad por evento.
-  for (const columna of ['expires_ms INTEGER', 'texto TEXT', 'fuentes TEXT']) {
+  for (const columna of [
+    'expires_ms INTEGER',
+    'texto TEXT',
+    'fuentes TEXT',
+    'imagen TEXT',
+    'enlace TEXT',
+  ]) {
     try {
       db.exec(`ALTER TABLE events ADD COLUMN ${columna}`);
     } catch {
@@ -165,7 +173,9 @@ function createRepository(db) {
       'DELETE FROM events WHERE expires_ms IS NOT NULL AND expires_ms <= ?',
     ),
     setEventExpiry: db.prepare('UPDATE events SET expires_ms = ? WHERE packet_id = ?'),
-    setEventDetails: db.prepare('UPDATE events SET texto = ?, fuentes = ? WHERE packet_id = ?'),
+    setEventDetails: db.prepare(
+      'UPDATE events SET texto = ?, fuentes = ?, imagen = ?, enlace = ? WHERE packet_id = ?',
+    ),
     deleteEvent: db.prepare('DELETE FROM events WHERE packet_id = ?'),
     deletePeer: db.prepare('DELETE FROM peers WHERE sender_id = ?'),
     deleteSimPeers: db.prepare("DELETE FROM peers WHERE transport = 'sim'"),
@@ -332,9 +342,16 @@ function createRepository(db) {
     return statements.listAcks.all(Buffer.from(packetId)).map((row) => ({ ...row }));
   }
 
-  /** Texto completo de la nota y fuentes que la publicaron. */
-  function setEventDetails(packetId, texto, fuentes) {
-    return statements.setEventDetails.run(texto, JSON.stringify(fuentes || []), packetId);
+  /** Texto completo, fuentes, imagen y enlace de la nota. */
+  function setEventDetails(packetId, detalles) {
+    const { texto = '', fuentes = [], imagen = '', enlace = '' } = detalles || {};
+    return statements.setEventDetails.run(
+      texto,
+      JSON.stringify(fuentes),
+      imagen,
+      enlace,
+      packetId,
+    );
   }
 
   function deleteEvent(packetId) {

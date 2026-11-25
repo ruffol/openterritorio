@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:geolocator/geolocator.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../data/app_state.dart';
 import '../data/backend_client.dart';
@@ -31,6 +32,16 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   /// Corte guardado en disco de las marcas ya descartadas.
   static const String _marcasKey = 'marcas_limpiadas_hasta';
+
+  /// Ventana de la línea del tiempo y su paso (15 min).
+  static const int _ventanaHoras = 12;
+  static const int _pasoSeg = 900;
+
+  /// Instante límite que se está viendo; null = en vivo.
+  int? _hastaTs;
+  Timer? _reproducir;
+
+  int get _ahoraTs => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
   final AppState _state = AppState();
   final math.Random _random = math.Random.secure();
@@ -432,6 +443,151 @@ class _HomePageState extends State<HomePage> {
     if (mounted) _showSnack('Avisos anteriores quitados del mapa.');
   }
 
+  /// Avanza o retrocede la vista en el tiempo (null = volver a vivo).
+  void _verDesde(int? ts) {
+    _reproducir?.cancel();
+    setState(() {
+      _reproducir = null;
+      _hastaTs = ts;
+    });
+  }
+
+  /// Reproduce la ventana: avanza 15 min por segundo desde el inicio.
+  void _alternarReproduccion() {
+    if (_reproducir != null) {
+      _reproducir!.cancel();
+      setState(() => _reproducir = null);
+      return;
+    }
+    setState(() {
+      _hastaTs ??= _ahoraTs - _ventanaHoras * 3600;
+      _reproducir = Timer.periodic(const Duration(milliseconds: 600), (t) {
+        final siguiente = (_hastaTs ?? 0) + _pasoSeg;
+        if (siguiente >= _ahoraTs) {
+          t.cancel();
+          setState(() {
+            _reproducir = null;
+            _hastaTs = null;
+          });
+        } else {
+          setState(() => _hastaTs = siguiente);
+        }
+      });
+    });
+  }
+
+  /// Franjas de 15 minutos de la ventana, con cuántos sucesos caen en cada una.
+  List<int> _franjas() {
+    final ahora = _ahoraTs;
+    final inicio = ahora - _ventanaHoras * 3600;
+    final total = (_ventanaHoras * 3600) ~/ _pasoSeg;
+    final cuenta = List<int>.filled(total, 0);
+    for (final evento in _state.events) {
+      if (evento.ts == 0) continue;
+      final indice = (evento.ts - inicio) ~/ _pasoSeg;
+      if (indice >= 0 && indice < total) cuenta[indice] += 1;
+    }
+    return cuenta;
+  }
+
+  Widget _lineaDelTiempo() {
+    final franjas = _franjas();
+    final ahora = _ahoraTs;
+    final inicio = ahora - _ventanaHoras * 3600;
+    final vista = _hastaTs;
+    final posicion = vista == null ? franjas.length - 1 : ((vista - inicio) ~/ _pasoSeg).clamp(0, franjas.length - 1);
+    final etiqueta = vista == null
+        ? 'Ahora'
+        : DateTime.fromMillisecondsSinceEpoch(vista * 1000).toLocal().toString().substring(0, 16);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 4, 6, 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF10161E),
+        border: Border(top: BorderSide(color: const Color(0xFF1E2A38))),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.timeline, size: 16, color: Color(0xFF9AAABF)),
+              const SizedBox(width: 6),
+              Text('Línea del tiempo', style: const TextStyle(fontSize: 11, color: Color(0xFF9AAABF))),
+              const SizedBox(width: 8),
+              Text(etiqueta, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+              const Spacer(),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: _reproducir == null ? 'Reproducir' : 'Pausar',
+                onPressed: _alternarReproduccion,
+                icon: Icon(_reproducir == null ? Icons.play_arrow : Icons.pause, size: 18),
+              ),
+              TextButton(
+                onPressed: vista == null ? null : () => _verDesde(null),
+                child: const Text('Ahora', style: TextStyle(fontSize: 11)),
+              ),
+            ],
+          ),
+          SizedBox(
+            height: 46,
+            child: LayoutBuilder(
+              builder: (context, c) {
+                final ancho = c.maxWidth / franjas.length;
+                return GestureDetector(
+                  onTapDown: (detalle) {
+                    final indice = (detalle.localPosition.dx / ancho).floor().clamp(0, franjas.length - 1);
+                    final ts = inicio + indice * _pasoSeg + _pasoSeg;
+                    _verDesde(ts >= ahora ? null : ts);
+                  },
+                  onHorizontalDragUpdate: (detalle) {
+                    final indice = (detalle.localPosition.dx / ancho).floor().clamp(0, franjas.length - 1);
+                    final ts = inicio + indice * _pasoSeg + _pasoSeg;
+                    _verDesde(ts >= ahora ? null : ts);
+                  },
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      for (var i = 0; i < franjas.length; i++)
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 0.5),
+                            child: Container(
+                              height: franjas[i] == 0 ? 3 : 8.0 + franjas[i] * 12.0,
+                              decoration: BoxDecoration(
+                                color: i == posicion
+                                    ? const Color(0xFFFFB020)
+                                    : (franjas[i] > 0 ? const Color(0xFF35C2FF) : const Color(0xFF22303F)),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          SliderTheme(
+            data: SliderThemeData(trackHeight: 2, thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6)),
+            child: Slider(
+              min: 0,
+              max: franjas.length.toDouble(),
+              divisions: franjas.length,
+              value: vista == null ? franjas.length.toDouble() : (posicion + 1).toDouble(),
+              onChanged: (v) {
+                final indice = (v.round() - 1).clamp(0, franjas.length - 1);
+                final ts = inicio + indice * _pasoSeg + _pasoSeg;
+                _verDesde(ts >= ahora ? null : ts);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Detalle de una nota al tocar su marcador: la cita completa y las fuentes.
   void _mostrarNota(EventMarker evento) {
     final cuando = evento.ts > 0
@@ -453,6 +609,25 @@ class _HomePageState extends State<HomePage> {
                 cuando,
                 style: Theme.of(context).textTheme.labelSmall,
               ),
+              if (evento.imagen.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    evento.imagen,
+                    height: 150,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    loadingBuilder: (context, child, progreso) => progreso == null
+                        ? child
+                        : const SizedBox(
+                            height: 150,
+                            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 10),
               SelectableText(
                 evento.texto.isEmpty
@@ -479,6 +654,21 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
         actions: [
+          if (evento.enlace.isNotEmpty)
+            TextButton.icon(
+              onPressed: () async {
+                final uri = Uri.tryParse(evento.enlace);
+                if (uri == null) return;
+                final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+                if (!ok && context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('No se pudo abrir el enlace')),
+                  );
+                }
+              },
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('Ver nota completa'),
+            ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cerrar'),
@@ -534,6 +724,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    _reproducir?.cancel();
     _tickTimer?.cancel();
     _packetSub?.cancel();
     _statusSub?.cancel();
@@ -593,8 +784,10 @@ class _HomePageState extends State<HomePage> {
                   state: _state,
                   viewport: _viewport,
                   onEventTap: _mostrarNota,
+                  hastaTs: _hastaTs,
                 ),
               ),
+              _lineaDelTiempo(),
               StatusBar(state: _state),
             ],
           );

@@ -203,7 +203,12 @@ class TacticalBoard extends StatefulWidget {
     required this.state,
     required this.viewport,
     this.onEventTap,
+    this.hastaTs,
   });
+
+  /// Si no es null, solo se dibujan los sucesos ocurridos hasta ese instante
+  /// (epoch en segundos). Es lo que mueve la barra del tiempo.
+  final int? hastaTs;
 
   /// Se dispara al tocar un evento: la pantalla muestra la nota completa.
   final void Function(EventMarker evento)? onEventTap;
@@ -279,6 +284,7 @@ class _TacticalBoardState extends State<TacticalBoard> {
                 widget.state,
                 widget.viewport,
                 simplify: _moviendo,
+                hastaTs: widget.hastaTs,
                 // Repintar sin reconstruir el árbol: al cargar una tesela o
                 // mover la cámara solo se vuelve a pintar el lienzo.
                 repaint: Listenable.merge(
@@ -298,6 +304,8 @@ class _TacticalBoardState extends State<TacticalBoard> {
     EventMarker? mejor;
     var menor = 30.0;
     for (final evento in widget.state.events) {
+      final corte = widget.hastaTs;
+      if (corte != null && evento.ts > corte) continue;
       final centro = widget.viewport.project(evento.lat, evento.lon, size);
       final distancia = (centro - punto).distance;
       if (distancia < menor) {
@@ -317,8 +325,12 @@ class BoardPainter extends CustomPainter {
     this.viewport, {
     this.fontFamily,
     this.simplify = false,
+    this.hastaTs,
     super.repaint,
   });
+
+  /// Corte temporal de la línea del tiempo (null = en vivo).
+  final int? hastaTs;
 
   final AppState state;
   final MapViewport viewport;
@@ -395,6 +407,8 @@ class BoardPainter extends CustomPainter {
     }
 
     for (final event in state.events) {
+      final corte = hastaTs;
+      if (corte != null && event.ts > corte) continue; // aún no ocurría
       final center = viewport.project(event.lat, event.lon, size);
       final path = Path()
         ..moveTo(center.dx, center.dy - 7)

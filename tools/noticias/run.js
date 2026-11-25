@@ -78,6 +78,8 @@ async function publicarEvento(nota) {
       // Cita para el detalle del marcador y los medios que la publicaron.
       texto: (nota.texto || '').slice(0, 600),
       fuentes: nota.fuentes && nota.fuentes.length > 0 ? nota.fuentes : [nota.fuente],
+      imagen: nota.imagen || '',
+      enlace: nota.url || '',
     }),
   });
   if (!respuesta.ok) {
@@ -111,12 +113,16 @@ async function main() {
     }
     const { estado, nota: guardada } = db.agregar(nota);
     let publicado = null;
-    // Se publica la primera vez y, una sola vez más, si la nota guardada aún no
-    // llevaba la cita completa (las que entraron antes de existir el detalle).
-    const faltaCita = estado === 'repetida' && !guardada.publicadaConTexto;
-    if (push && (estado === 'nueva' || faltaCita)) {
+    // Se publica la primera vez y, una sola vez más, si la nota guardada no
+    // llevaba el detalle completo (texto, imagen, enlace): las que entraron
+    // antes de existir esa función.
+    // 'duplicada' = ya estaba el mismo texto; 'repetida' = mismo hecho en otro
+    // medio. En ambos casos se republica una vez para completar el detalle.
+    const faltaDetalle =
+      (estado === 'repetida' || estado === 'duplicada') && !guardada.publicadaConDetalle;
+    if (push && (estado === 'nueva' || faltaDetalle)) {
       publicado = await publicarEvento(guardada);
-      guardada.publicadaConTexto = true;
+      guardada.publicadaConDetalle = true;
       db.guardar();
     }
     resumen.push({

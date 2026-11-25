@@ -141,26 +141,40 @@ async function descargar(fuente) {
 // Titulares que merecen abrir la nota completa (ahí vienen la colonia y la hora).
 const SOSPECHOSO = /homicid|ejecutad|asesinat|balacer|cadaver|cuerpo sin vida|acribillad|sicari|choque|volcadur|atropell|accidente|motociclis|asalto|robo|herido|lesionad|detenid|fallecid/i;
 
+/** Imagen social de la nota (og:image / twitter:image), ya absoluta. */
+function imagenDe(html, base) {
+  const m =
+    html.match(/<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["']/i) ||
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i) ||
+    html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i);
+  if (!m) return '';
+  try {
+    return new URL(m[1], base).toString();
+  } catch {
+    return '';
+  }
+}
+
 async function cuerpoDe(url) {
-  if (!url || !/^https?:/.test(url)) return '';
+  if (!url || !/^https?:/.test(url)) return { texto: '', imagen: '' };
   try {
     const respuesta = await fetch(url, {
       headers: { 'User-Agent': UA },
       redirect: 'follow',
       signal: AbortSignal.timeout(15000),
     });
-    if (!respuesta.ok) return '';
+    if (!respuesta.ok) return { texto: '', imagen: '' };
     const html = await respuesta.text();
-    // Se queda con el texto visible de los párrafos.
     const parrafos = html.match(/<p[^>]*>([\s\S]*?)<\/p>/g) || [];
-    return parrafos
+    const texto = parrafos
       .map((p) => decodificar(p))
       .filter((t) => t.length > 40)
       .slice(0, 8)
       .join(' ')
       .slice(0, 2500);
+    return { texto, imagen: imagenDe(html, url) };
   } catch {
-    return '';
+    return { texto: '', imagen: '' };
   }
 }
 
@@ -235,10 +249,11 @@ async function main() {
     await Promise.all(
       grupo.map(async (nota) => {
         const cuerpo = await cuerpoDe(nota.url);
-        if (cuerpo) {
-          nota.detalle = cuerpo;
+        if (cuerpo.texto) {
+          nota.detalle = cuerpo.texto;
           abiertas++;
         }
+        if (cuerpo.imagen) nota.imagen = cuerpo.imagen;
       }),
     );
   }
