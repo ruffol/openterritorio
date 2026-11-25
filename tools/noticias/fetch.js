@@ -15,6 +15,7 @@
  */
 
 const fs = require('node:fs');
+const fb = require('./fb');
 
 const FUENTES = [
   { nombre: 'afmedios', url: 'https://afmedios.com/feed/' },
@@ -34,6 +35,9 @@ const FUENTES = [
 ];
 
 const UA = 'openterritorio/1.0 (monitor de notas de Colima; srtlalchichi@gmail.com)';
+
+// Páginas vigiladas (se leen solo con FB_COOKIE configurada).
+const PAGINAS_FB = ['afmedios', 'colimanoticias', '61578915771491'];
 
 function decodificar(texto) {
   return String(texto || '')
@@ -145,6 +149,20 @@ async function main() {
       }
     }),
   );
+
+  // Páginas de Facebook (solo si hay cookie de sesión guardada). Si no la hay,
+  // se avisa y el monitor sigue con los RSS.
+  for (const pagina of PAGINAS_FB) {
+    const resultado = await fb.leerPagina(pagina);
+    if (!resultado.ok) {
+      console.log(`fb:${pagina}: omitida (${resultado.motivo})`);
+      continue;
+    }
+    for (const nota of resultado.notas) {
+      todas.push({ ...nota, publicado: Date.now() });
+    }
+    console.log(`fb:${pagina}: ${resultado.notas.length} publicaciones`);
+  }
 
   // Los agregadores solo dan el titular: para las notas que huelen a crimen o
   // accidente se abre el artículo, que es donde vienen la colonia y la hora.
