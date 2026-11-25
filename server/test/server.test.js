@@ -4,6 +4,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
+
+// En Windows el `tar` del PATH puede ser el GNU de git-bash, que interpreta
+// "C:\..." como un host remoto. bsdtar de System32 hace lo correcto.
+const TAR = process.platform === 'win32' && fs.existsSync('C:/Windows/System32/tar.exe')
+  ? 'C:/Windows/System32/tar.exe'
+  : 'tar';
 const os = require('node:os');
 const path = require('node:path');
 const WebSocket = require('ws');
@@ -563,6 +570,73 @@ test('OTA: subida por trozos publica solo cuando llega el último', async () => 
   } finally {
     await server.close();
     fs.rmSync(appDir, { recursive: true, force: true });
+  }
+});
+
+
+test('despliegue remoto: rechaza sha256 y sintaxis inválida, acepta lo válido', async () => {
+  const deployDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ot-deploy-dir-'));
+  const server = await startServer({ deployDir });
+  const headers = { Authorization: 'Bearer ' + TOKEN };
+
+  // Tarball de mentira con un .js válido y otro roto.
+  const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'ot-stage-'));
+  fs.mkdirSync(path.join(stage, 'app', 'src'), { recursive: true });
+  fs.writeFileSync(path.join(stage, 'app', 'src', 'server.js'), "require('./ok');\n");
+  fs.writeFileSync(path.join(stage, 'app', 'src', 'ok.js'), 'module.exports = 1;\n');
+  const tarball = path.join(stage, 'ok.tar.gz');
+  const tarOk = spawnSync(TAR, ['-czf', tarball, '-C', stage, '.']);
+  assert.equal(tarOk.status, 0);
+
+  const data = fs.readFileSync(tarball);
+  const sha = crypto.createHash('sha256').update(data).digest('hex');
+
+  try {
+    const sinSha = await fetch(`${server.url}/api/admin/deploy?version=x`, {
+      method: 'POST', headers, body: data,
+    });
+    assert.equal(sinSha.status, 400);
+
+    const malSha = await fetch(`${server.url}/api/admin/deploy?sha256=${'f'.repeat(64)}&version=x`, {
+      method: 'POST', headers, body: data,
+    });
+    assert.equal(malSha.status, 400);
+    assert.equal(fs.existsSync(path.join(deployDir, 'openterritorio.stamp')), false);
+
+    // Sintaxis rota: se rechaza y no deja sello.
+    fs.writeFileSync(path.join(stage, 'app', 'src', 'roto.js'), 'function ( {\n');
+    const badTar = path.join(stage, 'bad.tar.gz');
+    spawnSync(TAR, ['-czf', badTar, '-C', stage, '.']);
+    const badData = fs.readFileSync(badTar);
+    const badSha = crypto.createHash('sha256').update(badData).digest('hex');
+    const roto = await fetch(`${server.url}/api/admin/deploy?sha256=${badSha}&version=x`, {
+      method: 'POST', headers, body: badData,
+    });
+    assert.equal(roto.status, 400);
+    assert.match((await roto.json()).error, /sintaxis/);
+    assert.equal(fs.existsSync(path.join(deployDir, 'openterritorio.stamp')), false);
+
+    // El bueno: deja tarball, sello y respaldo.
+    const ok = await fetch(`${server.url}/api/admin/deploy?sha256=${sha}&version=prueba`, {
+      method: 'POST', headers, body: data,
+    });
+    assert.equal(ok.status, 202);
+    const body = await ok.json();
+    assert.equal(body.version, 'prueba');
+    assert.equal(fs.existsSync(path.join(deployDir, 'openterritorio.tar.gz')), true);
+    assert.equal(fs.readFileSync(path.join(deployDir, 'openterritorio.stamp'), 'utf8').startsWith('prueba-'), true);
+
+    const info = await fetch(`${server.url}/api/admin/version`, { headers }).then((r) => r.json());
+    assert.equal(info.deployed.version, 'prueba');
+
+    const sinToken = await fetch(`${server.url}/api/admin/deploy?sha256=${sha}`, {
+      method: 'POST', body: data,
+    });
+    assert.equal(sinToken.status, 401);
+  } finally {
+    fs.rmSync(stage, { recursive: true, force: true });
+    fs.rmSync(deployDir, { recursive: true, force: true });
+    await server.close();
   }
 });
 

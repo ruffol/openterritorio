@@ -47,6 +47,11 @@ function buildConfig(overrides = {}) {
     logFile: path.resolve(process.cwd(), process.env.LOG_FILE || 'logs/server.log'),
     // Carpeta con el APK publicado para OTA: latest.json + openterritorio.apk.
     appDir: path.resolve(process.cwd(), process.env.APP_DIR || 'app'),
+    // Despliegue remoto del backend: el vigilante del teléfono (runit) mira
+    // estos dos archivos y aplica el tarball cuando cambia el sello.
+    deployDir: process.env.DEPLOY_DIR || '/sdcard/Download',
+    deployEnabled: process.env.DEPLOY_DISABLE !== '1',
+    maxDeployBytes: Number(process.env.MAX_DEPLOY_BYTES || 12 * 1024 * 1024),
     // Puntos fijos del tablero (se pueden editar por API sin tocar la app).
     landmarksFile: path.resolve(process.cwd(), process.env.LANDMARKS_FILE || 'landmarks.json'),
     maxClients: num(process.env.MAX_CLIENTS, 200),

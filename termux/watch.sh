@@ -20,6 +20,42 @@ APK_APPLIED="$APP/.apk_stamp"
 LOG="$APP/logs/deploy.log"
 mkdir -p "$APP/logs"
 
+
+# Comprueba que el backend responda; si no, restaura src.bak y reinicia.
+salud() {
+  for _ in $(seq 1 12); do
+    sleep 2
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsS -m 2 "http://127.0.0.1:${PORT:-3000}/healthz" >/dev/null 2>&1 && return 0
+    else
+      wget -q -O /dev/null -T 2 "http://127.0.0.1:${PORT:-3000}/healthz" 2>/dev/null && return 0
+    fi
+  done
+  return 1
+}
+
+reiniciar_backend() {
+  sv restart openterritorio >>"$LOG" 2>&1 || sv up openterritorio >>"$LOG" 2>&1
+  if salud; then
+    echo "$(date -Is) servicio arriba" >>"$LOG"
+    return 0
+  fi
+  echo "$(date -Is) ERROR: el backend no responde, restaurando src.bak" >>"$LOG"
+  if [ -d "$APP/app/src.bak" ]; then
+    rm -rf "$APP/app/src"
+    mv "$APP/app/src.bak" "$APP/app/src"
+    sv restart openterritorio >>"$LOG" 2>&1 || true
+    if salud; then
+      echo "$(date -Is) respaldo restaurado y servicio arriba" >>"$LOG"
+    else
+      echo "$(date -Is) ERROR: el respaldo tampoco arranca" >>"$LOG"
+    fi
+  else
+    echo "$(date -Is) sin respaldo disponible" >>"$LOG"
+  fi
+  return 1
+}
+
 while true; do
   # Backend: extrae el tarball y reinicia el servicio.
   if [ -f "$STAMP" ] && [ -f "$TARBALL" ]; then
@@ -29,8 +65,7 @@ while true; do
       echo "$(date -Is) deploy $NEW" >>"$LOG"
       if tar -xzf "$TARBALL" -C "$APP" >>"$LOG" 2>&1; then
         echo "$NEW" >"$APPLIED"
-        sv restart openterritorio >>"$LOG" 2>&1 || sv up openterritorio >>"$LOG" 2>&1
-        echo "$(date -Is) servicio reiniciado" >>"$LOG"
+        reiniciar_backend || true
         # Si este deploy trae un watch.sh nuevo, recárgalo con runit.
         sv restart openterritorio-deploy >>"$LOG" 2>&1 || true
       else

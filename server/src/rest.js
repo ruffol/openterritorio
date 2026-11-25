@@ -5,9 +5,17 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
+const os = require('node:os');
+const { spawnSync } = require('node:child_process');
 const express = require('express');
 const proto = require('./proto');
 const pkg = require('../package.json');
+
+// En Windows el `tar` del PATH puede ser el GNU de git-bash, que lee "C:\..."
+// como host remoto; el bsdtar de System32 maneja rutas nativas.
+const TAR_BIN = process.platform === 'win32' && fs.existsSync('C:/Windows/System32/tar.exe')
+  ? 'C:/Windows/System32/tar.exe'
+  : 'tar';
 
 function peerJSON(row, nowMs) {
   return {
@@ -227,6 +235,9 @@ function readLandmarks(config) {
     return DEFAULT_LANDMARKS.map((item) => ({ ...item, colors: [...item.colors] }));
   }
 }
+
+let bootedAt = Date.now();
+let lastDeploy = null;
 
 function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, startedAt }) {
   const app = express();
@@ -553,6 +564,124 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
       }
       log.warn('upload falló', { err: err.message });
       return res.status(500).json({ ok: false, error: 'no se pudo guardar el APK' });
+    }
+  });
+
+
+  // ---------------------------------------------------------------------
+  // Despliegue remoto del backend.
+  //
+  // El servidor corre bajo runit en el teléfono y hay un servicio vigilante
+  // (`openterritorio-deploy`) que aplica el tarball cuando cambia el sello.
+  // Aquí solo se valida y se deja el artefacto; el reinicio lo hace el
+  // vigilante, que sobrevive al reinicio del backend.
+  // ---------------------------------------------------------------------
+  app.get('/api/admin/version', (req, res) => {
+    res.json({
+      ok: true,
+      pid: process.pid,
+      booted_at: new Date(bootedAt).toISOString(),
+      uptime_s: Math.round((Date.now() - bootedAt) / 1000),
+      deployed: lastDeploy,
+    });
+  });
+
+  app.post('/api/admin/deploy', async (req, res) => {
+    if (!config.deployEnabled) {
+      return res.status(403).json({ ok: false, error: 'despliegue remoto deshabilitado' });
+    }
+    const expected = String(req.query.sha256 || '').toLowerCase();
+    const label = String(req.query.version || '').slice(0, 48) || `deploy-${Date.now()}`;
+    if (!/^[0-9a-f]{64}$/.test(expected)) {
+      return res.status(400).json({ ok: false, error: 'sha256 del tarball requerido (64 hex)' });
+    }
+
+    const tarball = path.join(config.deployDir, 'openterritorio.tar.gz');
+    const part = `${tarball}.part`;
+    const stampFile = path.join(config.deployDir, 'openterritorio.stamp');
+    let bytes = 0;
+
+    try {
+      fs.mkdirSync(config.deployDir, { recursive: true });
+      const hash = crypto.createHash('sha256');
+      const meter = new Transform({
+        transform(chunk, _enc, callback) {
+          bytes += chunk.length;
+          if (bytes > config.maxDeployBytes) {
+            callback(new Error('tarball demasiado grande'));
+            return;
+          }
+          hash.update(chunk);
+          callback(null, chunk);
+        },
+      });
+      await pipeline(req, meter, fs.createWriteStream(part));
+      const digest = hash.digest('hex');
+      if (digest !== expected) {
+        fs.rmSync(part, { force: true });
+        return res.status(400).json({ ok: false, error: 'sha256 no coincide', recibido: digest });
+      }
+
+      // 1) Validación: se extrae aparte y se comprueba la sintaxis de cada .js.
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ot-deploy-'));
+      // Se pasa el nombre relativo: un tar de Windows (GNU) interpreta "C:\..."
+      // como host remoto y falla.
+      const untar = spawnSync(TAR_BIN, ['-xzf', path.basename(part), '-C', tmp], {
+        encoding: 'utf8',
+        cwd: config.deployDir,
+      });
+      if (untar.status !== 0) {
+        fs.rmSync(tmp, { recursive: true, force: true });
+        fs.rmSync(part, { force: true });
+        return res.status(400).json({ ok: false, error: `tar falló: ${(untar.stderr || '').slice(0, 200)}` });
+      }
+      const srcDir = path.join(tmp, 'app', 'src');
+      if (!fs.existsSync(path.join(srcDir, 'server.js'))) {
+        fs.rmSync(tmp, { recursive: true, force: true });
+        fs.rmSync(part, { force: true });
+        return res.status(400).json({ ok: false, error: 'el tarball no trae app/src/server.js' });
+      }
+      for (const file of fs.readdirSync(srcDir)) {
+        if (!file.endsWith('.js')) continue;
+        const check = spawnSync(process.execPath, ['--check', path.join(srcDir, file)], { encoding: 'utf8' });
+        if (check.status !== 0) {
+          fs.rmSync(tmp, { recursive: true, force: true });
+          fs.rmSync(part, { force: true });
+          return res.status(400).json({
+            ok: false,
+            error: `sintaxis inválida en ${file}: ${(check.stderr || '').slice(0, 300)}`,
+          });
+        }
+      }
+      fs.rmSync(tmp, { recursive: true, force: true });
+
+      // 2) Respaldo de lo que está corriendo, para que el vigilante pueda volver.
+      const current = path.join(process.cwd(), 'src');
+      const backup = path.join(process.cwd(), 'src.bak');
+      if (fs.existsSync(current)) {
+        fs.rmSync(backup, { recursive: true, force: true });
+        fs.cpSync(current, backup, { recursive: true });
+      }
+
+      // 3) Publicar: tarball + sello. El vigilante hace el resto.
+      fs.renameSync(part, tarball);
+      const stamp = `${label}-${Date.now().toString(36)}`;
+      fs.writeFileSync(stampFile, stamp);
+      lastDeploy = { version: label, stamp, bytes, at: new Date().toISOString() };
+      log.info('despliegue remoto aceptado', { version: label, bytes });
+      return res.status(202).json({
+        ok: true,
+        version: label,
+        stamp,
+        bytes,
+        mensaje: 'el vigilante del teléfono aplicará el cambio y reiniciará el servicio',
+      });
+    } catch (error) {
+      fs.rmSync(part, { force: true });
+      const message = String(error && error.message ? error.message : error);
+      const tooLarge = message.includes('demasiado grande');
+      log.error('despliegue remoto falló', { error: message });
+      return res.status(tooLarge ? 413 : 500).json({ ok: false, error: message });
     }
   });
 
