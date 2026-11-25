@@ -169,6 +169,22 @@ class AppState extends ChangeNotifier {
   double ownSpeedKmh = 0;
   double ownAltitudeM = 0;
 
+  /// Segundos epoch por debajo de los cuales no se muestran eventos, alertas
+  /// ni pares: es lo que deja el botón "limpiar marcas" y se guarda en disco.
+  int limpiadoHasta = 0;
+
+  /// Descarta las marcas viejas y guarda el corte; devuelve el instante usado.
+  int limpiarMarcas() {
+    limpiadoHasta = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    peers.clear();
+    events.clear();
+    alerts.clear();
+    _eventIds.clear();
+    _alertIds.clear();
+    notifyListeners();
+    return limpiadoHasta;
+  }
+
   final Map<int, Peer> peers = <int, Peer>{};
   final List<EventMarker> events = <EventMarker>[];
   final List<AlertMarker> alerts = <AlertMarker>[];
@@ -283,6 +299,7 @@ class AppState extends ChangeNotifier {
         if (item is! Map) continue;
         final peer = Peer.fromJson(Map<String, dynamic>.from(item));
         if (peer.senderId == selfId) continue;
+        if (peer.lastTs > 0 && peer.lastTs <= limpiadoHasta) continue;
         peers[peer.senderId] = peer;
       }
     }
@@ -312,11 +329,13 @@ class AppState extends ChangeNotifier {
   }
 
   void _upsertPeer(Peer peer) {
+    if (peer.lastTs > 0 && peer.lastTs <= limpiadoHasta) return;
     peers[peer.senderId] = peer;
     notifyListeners();
   }
 
   void _addEvent(EventMarker event) {
+    if (event.ts > 0 && event.ts <= limpiadoHasta) return;
     if (!_eventIds.add(event.id)) return;
     events.insert(0, event);
     if (events.length > _maxEvents) {
@@ -327,6 +346,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _addAlert(AlertMarker alert) {
+    if (alert.ts > 0 && alert.ts <= limpiadoHasta) return;
     if (!_alertIds.add(alert.id)) return;
     alerts.insert(0, alert);
     if (alerts.length > _maxAlerts) {

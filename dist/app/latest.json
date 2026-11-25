@@ -1,10 +1,10 @@
 {
-  "version": "0.8.1",
-  "version_code": 20,
+  "version": "0.8.2",
+  "version_code": 21,
   "apk": "openterritorio.apk",
-  "size_bytes": 81549219,
-  "sha256": "2e1e0eba83f17a0350d31b0fff882f995bbbf24d1df52b1ea4af11032e4b420b",
-  "notes": "Instalador: abre el instalador del sistema (arregla el error al actualizar). Sin marcadores de ejemplo, solo los tuyos.",
-  "published_at": "2026-11-25T02:40:47.757002Z",
+  "size_bytes": 81565727,
+  "sha256": "c92f35b1b84aa16d0b8b003a5356a13c93c7da60061946a5eb5b29f67f36db57",
+  "notes": "Boton para quitar los avisos viejos del mapa (punto de reunion 1001, cierre de camino 1000...) y solo quedan tus puntos",
+  "published_at": "2026-11-25T03:55:45.712291Z",
   "url": ""
 }

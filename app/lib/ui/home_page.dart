@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:geolocator/geolocator.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/app_state.dart';
 import '../data/backend_client.dart';
@@ -28,6 +29,9 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  /// Corte guardado en disco de las marcas ya descartadas.
+  static const String _marcasKey = 'marcas_limpiadas_hasta';
+
   final AppState _state = AppState();
   final math.Random _random = math.Random.secure();
 
@@ -101,6 +105,12 @@ class _HomePageState extends State<HomePage> {
     }
     if (!mounted) return;
     _state.selfId = _settings.senderId;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _state.limpiadoHasta = prefs.getInt(_marcasKey) ?? 0;
+    } on Object {
+      // Sin preferencias: se muestran todas las marcas del servidor.
+    }
     setState(() {});
     _connect();
     unawaited(_startGps());
@@ -382,6 +392,41 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// Quita del mapa los avisos y pares anteriores a este momento y lo
+  /// recuerda en disco para que no reaparezcan al reconectar.
+  Future<void> _limpiarMarcas() async {
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Quitar avisos del mapa'),
+        content: const Text(
+          'Se ocultan los avisos, alertas y equipos que ya había. '
+          'Tus puntos fijos (universidad, sangre, marrón) no se tocan. '
+          'Lo que llegue de ahora en adelante sí se muestra.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Quitar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmado != true) return;
+    final corte = _state.limpiarMarcas();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_marcasKey, corte);
+    } on Object {
+      // Si falla el guardado, el corte vale solo para esta sesión.
+    }
+    if (mounted) _showSnack('Avisos anteriores quitados del mapa.');
+  }
+
   Future<void> _showAbout() async {
     final info = await OtaChannel.currentVersion();
     if (!mounted) return;
@@ -459,6 +504,11 @@ class _HomePageState extends State<HomePage> {
             tooltip: 'Versión y Repositorio',
             onPressed: _showAbout,
             icon: const Icon(Icons.info_outline),
+          ),
+          IconButton(
+            tooltip: 'Quitar avisos del mapa',
+            onPressed: _limpiarMarcas,
+            icon: const Icon(Icons.cleaning_services_outlined),
           ),
           IconButton(
             tooltip: 'Refrescar estado',

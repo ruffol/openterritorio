@@ -313,6 +313,41 @@ void main() {
     expect(claros, greaterThan(200), reason: 'no aparecen trazos de vías vectoriales');
   });
 
+
+  test('limpiar marcas oculta lo anterior y deja pasar lo nuevo', () {
+    final state = AppState()..selfId = 77;
+    final ahora = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    Map<String, dynamic> evento(String id, int ts, String nota) => {
+      'packet_id': id,
+      'lat': 19.2433,
+      'lon': -103.7247,
+      'category_id': 3,
+      'short_note': nota,
+      'ts': ts,
+    };
+
+    state.applySnapshot({
+      'events': [
+        evento('viejo1', ahora - 3600, 'Punto de reunion'),
+        evento('viejo2', ahora - 1800, 'Cierre de camino'),
+      ],
+    });
+    expect(state.events.length, 2);
+
+    final corte = state.limpiarMarcas();
+    expect(corte, greaterThanOrEqualTo(ahora));
+    expect(state.events, isEmpty);
+
+    // Al reconectar, el servidor vuelve a mandar los mismos viejos.
+    state.applySnapshot({
+      'events': [
+        evento('viejo1', ahora - 3600, 'Punto de reunion'),
+        evento('nuevo', ahora + 60, 'Derrumbe'),
+      ],
+    });
+    expect(state.events.map((e) => e.id).toList(), ['nuevo']);
+  });
+
   test('dibuja pares, eventos y alertas encima del mapa', () async {
     const size = Size(400, 700);
     await _seedTiles(MapLayerId.oscuro, 19.2433, -103.7247);
