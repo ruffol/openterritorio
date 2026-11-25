@@ -68,10 +68,33 @@ async function main() {
     if (fs.existsSync(from)) fs.cpSync(from, path.join(app, item), { recursive: true });
   }
   fs.copyFileSync(path.join(ROOT, 'server', 'package.json'), path.join(app, 'package.json'));
+
+  // Monitor de notas: solo el código (la cookie y la base se quedan fuera).
+  const noticiasSrc = path.join(ROOT, 'tools', 'noticias');
+  if (fs.existsSync(noticiasSrc)) {
+    const destino = path.join(app, 'noticias');
+    fs.mkdirSync(destino, { recursive: true });
+    for (const archivo of fs.readdirSync(noticiasSrc)) {
+      if (!archivo.endsWith('.js')) continue;
+      fs.copyFileSync(path.join(noticiasSrc, archivo), path.join(destino, archivo));
+    }
+  }
   const watch = path.join(ROOT, 'termux', 'watch.sh');
   if (fs.existsSync(watch)) {
     fs.mkdirSync(path.join(stage, 'termux'), { recursive: true });
     fs.copyFileSync(watch, path.join(stage, 'termux', 'watch.sh'));
+  }
+  // Gacetero del INEGI para ubicar las notas en el teléfono (0.07 MB).
+  const gacetero = path.join(ROOT, 'app', 'assets', 'vector', 'localidades.json.gz');
+  if (fs.existsSync(gacetero)) {
+    fs.mkdirSync(path.join(app, 'assets', 'vector'), { recursive: true });
+    fs.copyFileSync(gacetero, path.join(app, 'assets', 'vector', 'localidades.json.gz'));
+  }
+
+  // Servicios de runit (el vigilante los instala al aplicar el despliegue).
+  const servicios = path.join(ROOT, 'termux', 'service');
+  if (fs.existsSync(servicios)) {
+    fs.cpSync(servicios, path.join(stage, 'termux', 'service'), { recursive: true });
   }
 
   const tarball = path.join(stage, 'openterritorio.tar.gz');
@@ -101,7 +124,8 @@ async function main() {
   console.log(`aceptado: ${body.mensaje || 'aplicando'}`);
 
   // Esperar a que el servicio reinicie con el código nuevo.
-  const deadline = Date.now() + 120_000;
+  const enviadoEn = Date.now();
+  const deadline = enviadoEn + 150_000;
   let ultimo = '';
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 3000));
@@ -112,6 +136,14 @@ async function main() {
       if (!info) {
         ultimo = 'sin respuesta (reiniciando)';
         continue;
+      }
+      // Vale cuando el proceso arrancó después del envío: así se confirma el
+      // reinicio, no solo que el servidor aceptó el archivo.
+      const arrancado = Date.parse(info.booted_at || 0);
+      if (arrancado > enviadoEn && info.deployed === null) {
+        console.log(`listo: el backend reinició con ${body.version} (pid ${info.pid}, ${info.uptime_s}s de vida)`);
+        fs.rmSync(stage, { recursive: true, force: true });
+        return;
       }
       if (info.deployed && info.deployed.stamp === body.stamp) {
         console.log(`listo: el backend corre con ${info.deployed.version} (pid ${info.pid}, ${info.uptime_s}s de vida)`);

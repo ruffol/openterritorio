@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS events (
   lon_e7      INTEGER NOT NULL,
   short_note  TEXT,
   ts          INTEGER NOT NULL,
-  created_ms  INTEGER NOT NULL
+  created_ms  INTEGER NOT NULL,
+  expires_ms  INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_ms);
 
@@ -84,6 +85,12 @@ function openDatabase(dbPath) {
   db.exec('PRAGMA synchronous = NORMAL;');
   db.exec('PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  // Bases creadas antes de existir la caducidad por evento.
+  try {
+    db.exec('ALTER TABLE events ADD COLUMN expires_ms INTEGER');
+  } catch {
+    // la columna ya existe
+  }
   return db;
 }
 
@@ -150,6 +157,10 @@ function createRepository(db) {
     pruneSeen: db.prepare('DELETE FROM packets_seen WHERE seen_ms < ?'),
     pruneTracks: db.prepare('DELETE FROM tracks WHERE created_ms < ?'),
     pruneEvents: db.prepare('DELETE FROM events WHERE created_ms < ?'),
+    pruneExpiredEvents: db.prepare(
+      'DELETE FROM events WHERE expires_ms IS NOT NULL AND expires_ms <= ?',
+    ),
+    setEventExpiry: db.prepare('UPDATE events SET expires_ms = ? WHERE packet_id = ?'),
     pruneAlerts: db.prepare('DELETE FROM alerts WHERE created_ms < ?'),
     pruneAcks: db.prepare('DELETE FROM acks WHERE created_ms < ?'),
     prunePeers: db.prepare('DELETE FROM peers WHERE last_seen_ms < ?'),
@@ -246,6 +257,9 @@ function createRepository(db) {
     const seen = statements.pruneSeen.run(nowMs - seenTtlMs);
     const tracks = statements.pruneTracks.run(nowMs - trackTtlMs);
     const events = statements.pruneEvents.run(nowMs - eventTtlMs);
+    // Los eventos con caducidad propia (notas de crimen/accidente) se van en
+    // cuanto cumplen; el TTL global queda para los que no la traen.
+    const expirados = statements.pruneExpiredEvents.run(nowMs);
     const alerts = statements.pruneAlerts.run(nowMs - eventTtlMs);
     const acks = statements.pruneAcks.run(nowMs - eventTtlMs);
     const peers = statements.prunePeers.run(nowMs - peerTtlMs);
@@ -253,6 +267,7 @@ function createRepository(db) {
       seen: Number(seen.changes),
       tracks: Number(tracks.changes),
       events: Number(events.changes),
+      expirados: Number(expirados.changes),
       alerts: Number(alerts.changes),
       acks: Number(acks.changes),
       peers: Number(peers.changes),
@@ -309,8 +324,14 @@ function createRepository(db) {
     return statements.listAcks.all(Buffer.from(packetId)).map((row) => ({ ...row }));
   }
 
+  /** Fija cuándo deja de mostrarse un evento (notas con caducidad propia). */
+  function setEventExpiry(packetId, expiresMs) {
+    return statements.setEventExpiry.run(Math.round(expiresMs), packetId);
+  }
+
   return {
     markSeen,
+    setEventExpiry,
     upsertPeer,
     insertTrack,
     insertEvent,

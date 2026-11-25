@@ -45,6 +45,7 @@ function eventJSON(row) {
     short_note: row.short_note || '',
     ts: row.ts,
     created_ms: row.created_ms,
+    expires_ms: row.expires_ms ?? null,
   };
 }
 
@@ -239,7 +240,7 @@ function readLandmarks(config) {
 let bootedAt = Date.now();
 let lastDeploy = null;
 
-function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, startedAt }) {
+function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, startedAt , monitor }) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', true);
@@ -330,10 +331,21 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
       });
       const result = ingest.handle(proto.encode(packet), null);
       if (!result.ok) return res.status(400).json(result);
+
+      // Caducidad propia: las notas de crimen/accidente se van solas del mapa.
+      const horas = Number(body.ttl_horas ?? req.query.ttl_horas);
+      const milis = Number(body.ttl_ms ?? req.query.ttl_ms);
+      let expires = null;
+      if (Number.isFinite(horas) && horas > 0) expires = Date.now() + horas * 3600_000;
+      else if (Number.isFinite(milis) && milis > 0) expires = Date.now() + milis;
+      if (expires !== null) {
+        repo.setEventExpiry(packet.packet_id, Math.round(expires));
+      }
       return res.status(201).json({
         ok: true,
         packet_id: packet.packet_id.toString('hex'),
         type: 'USER_EVENT',
+        expires_ms: expires === null ? null : Math.round(expires),
       });
     } catch (err) {
       return res.status(400).json({ ok: false, error: err.message });
@@ -683,6 +695,22 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
       log.error('despliegue remoto falló', { error: message });
       return res.status(tooLarge ? 413 : 500).json({ ok: false, error: message });
     }
+  });
+
+
+  // Estado del monitor de notas: última ejecución, resumen y cola del log.
+  app.get('/api/admin/monitor', (req, res) => {
+    const estado = typeof monitor?.estado === 'function' ? monitor.estado() : { habilitado: false, log: 'monitor apagado' };
+    res.json({ ok: true, ...estado });
+  });
+
+  // Forzar una pasada ahora (útil tras desplegar).
+  app.post('/api/admin/monitor/run', async (req, res) => {
+    if (typeof monitor?.correrAhora !== 'function') {
+      return res.status(409).json({ ok: false, error: 'monitor apagado' });
+    }
+    monitor.correrAhora();
+    return res.status(202).json({ ok: true, mensaje: 'pasada en curso' });
   });
 
   app.post('/api/packets', (req, res) => {

@@ -183,7 +183,11 @@ function analizar(entrada) {
   // Solo se marca si la nota dice dónde fue (colonia, comunidad, carretera,
   // "a la altura de"). Caer al centro del municipio llenaba el mapa de puntos
   // falsos en la capital para cualquier nota que mencionara "Colima".
-  if (lugar.precision !== 'marca explicita' && lugar.tipo !== 'localidad') {
+  // En Manzanillo, Tecomán o Armería la nota suele ocurrir en la cabecera, así
+  // que el municipio sirve. En la zona conurbada Colima-Villa no: ahí se exige
+  // colonia, comunidad, carretera o "a la altura de".
+  const capital = lugar.tipo === 'municipio' && /^(colima|villa de alvarez)$/i.test(lugar.nombre);
+  if (lugar.precision !== 'marca explicita' && lugar.tipo !== 'localidad' && capital) {
     return null;
   }
 

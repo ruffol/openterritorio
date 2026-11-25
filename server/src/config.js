@@ -52,6 +52,11 @@ function buildConfig(overrides = {}) {
     deployDir: process.env.DEPLOY_DIR || '/sdcard/Download',
     deployEnabled: process.env.DEPLOY_DISABLE !== '1',
     maxDeployBytes: Number(process.env.MAX_DEPLOY_BYTES || 12 * 1024 * 1024),
+
+    // Monitor de notas dentro del backend (lee RSS de los medios y publica
+    // eventos temporales). MONITOR=0 lo apaga.
+    monitorEnabled: process.env.MONITOR !== '0',
+    monitorIntervalMs: Number(process.env.MONITOR_INTERVAL_MS || 15 * 60 * 1000),
     // Puntos fijos del tablero (se pueden editar por API sin tocar la app).
     landmarksFile: path.resolve(process.cwd(), process.env.LANDMARKS_FILE || 'landmarks.json'),
     maxClients: num(process.env.MAX_CLIENTS, 200),

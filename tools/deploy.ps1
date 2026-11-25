@@ -32,6 +32,12 @@ Copy-Item (Join-Path $server 'package.json') (Join-Path $stage 'app\package.json
 Copy-Item -Recurse (Join-Path $server 'node_modules') (Join-Path $stage 'app\node_modules')
 Copy-Item -Recurse (Join-Path $root 'proto') (Join-Path $stage 'proto')
 Copy-Item -Recurse (Join-Path $root 'termux') (Join-Path $stage 'termux')
+# Monitor de notas (sin la cookie de sesión ni la base local, que son privadas).
+$noticiasDst = Join-Path $stage 'app\noticias'
+New-Item -ItemType Directory -Force -Path $noticiasDst | Out-Null
+Copy-Item -Path (Join-Path $root 'tools\noticias\*.js') -Destination $noticiasDst -Force
+New-Item -ItemType Directory -Force -Path (Join-Path $stage 'app\assets\vector') | Out-Null
+Copy-Item (Join-Path $root 'app\assets\vector\localidades.json.gz') (Join-Path $stage 'app\assets\vector\localidades.json.gz') -Force
 
 $tarPath = Join-Path $dist 'openterritorio.tar.gz'
 Remove-Item $tarPath -Force -ErrorAction SilentlyContinue

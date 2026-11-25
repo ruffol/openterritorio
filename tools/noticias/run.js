@@ -60,6 +60,9 @@ function leerFeed(ruta) {
   return Array.isArray(datos) ? datos : datos.notas || [];
 }
 
+/** Horas que el evento se queda en el mapa (por defecto 24). */
+const TTL_HORAS = Number(process.env.NOTICIAS_TTL_HORAS || 24);
+
 async function publicarEvento(nota) {
   if (!TOKEN) throw new Error('falta OPENTERITORIO_TOKEN para publicar en el mapa');
   const url = `${BASE}/api/events`;
@@ -71,6 +74,7 @@ async function publicarEvento(nota) {
       lon: nota.lon,
       category_id: nota.categoria,
       short_note: nota.etiqueta,
+      ttl_horas: TTL_HORAS,
     }),
   });
   if (!respuesta.ok) {

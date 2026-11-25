@@ -34,6 +34,24 @@ salud() {
   return 1
 }
 
+# Copia a runit los servicios que traiga el despliegue (p. ej. el monitor de
+# notas) y los levanta la primera vez.
+instalar_servicios() {
+  [ -d "$APP/termux/service" ] || return 0
+  for dir in "$APP"/termux/service/*; do
+    [ -d "$dir" ] || continue
+    nombre=$(basename "$dir")
+    destino="$SVDIR/$nombre"
+    [ -d "$destino" ] && continue
+    mkdir -p "$destino"
+    cp "$dir/run" "$destino/run" 2>/dev/null || continue
+    chmod +x "$destino/run"
+    ln -sfn "$destino" "$SVDIR/../service/$nombre" 2>/dev/null || true
+    sv up "$nombre" >>"$LOG" 2>&1 || true
+    echo "$(date -Is) servicio $nombre instalado" >>"$LOG"
+  done
+}
+
 reiniciar_backend() {
   sv restart openterritorio >>"$LOG" 2>&1 || sv up openterritorio >>"$LOG" 2>&1
   if salud; then
@@ -65,6 +83,7 @@ while true; do
       echo "$(date -Is) deploy $NEW" >>"$LOG"
       if tar -xzf "$TARBALL" -C "$APP" >>"$LOG" 2>&1; then
         echo "$NEW" >"$APPLIED"
+        instalar_servicios
         reiniciar_backend || true
         # Si este deploy trae un watch.sh nuevo, recárgalo con runit.
         sv restart openterritorio-deploy >>"$LOG" 2>&1 || true

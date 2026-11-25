@@ -73,6 +73,7 @@ async function startServer(overrides = {}) {
     logFile: path.join(dir, 'server.log'),
     token: TOKEN,
     logLevel: 'error',
+    monitorEnabled: false,
     ...overrides,
   });
   await rt.start(0, '127.0.0.1');
@@ -636,6 +637,50 @@ test('despliegue remoto: rechaza sha256 y sintaxis inválida, acepta lo válido'
   } finally {
     fs.rmSync(stage, { recursive: true, force: true });
     fs.rmSync(deployDir, { recursive: true, force: true });
+    await server.close();
+  }
+});
+
+
+test('un evento con ttl_horas desaparece cuando caduca', async () => {
+  const server = await startServer();
+  const headers = {
+    Authorization: 'Bearer ' + TOKEN,
+    'Content-Type': 'application/json',
+  };
+  try {
+    const creado = await fetch(`${server.url}/api/events`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        lat: 19.2433,
+        lon: -103.7247,
+        category_id: 2,
+        short_note: 'Choque con caducidad',
+        ttl_horas: 1,
+      }),
+    });
+    assert.equal(creado.status, 201);
+    const body = await creado.json();
+    assert.ok(body.expires_ms > Date.now(), 'debe traer caducidad');
+
+    const estado = await getJson(server.url, '/api/state');
+    const evento = estado.body.events.find((e) => e.short_note === 'Choque con caducidad');
+    assert.ok(evento, 'el evento debe estar visible');
+    assert.ok(evento.expires_ms > Date.now());
+
+    // Dos horas después ya cumplió su hora y se borra sin tocar el TTL global.
+    const borrado = server.rt.repo.prune(Date.now() + 2 * 3600_000, 86400_000, 86400_000, {
+      eventTtlMs: 86400_000,
+    });
+    assert.ok(borrado.expirados >= 1);
+
+    const despues = await getJson(server.url, '/api/state');
+    assert.equal(
+      despues.body.events.filter((e) => e.short_note === 'Choque con caducidad').length,
+      0,
+    );
+  } finally {
     await server.close();
   }
 });

@@ -3,6 +3,7 @@
 const http = require('node:http');
 const path = require('node:path');
 const { buildConfig } = require('./config');
+const { crearMonitor } = require('./monitor');
 const { createLogger } = require('./log');
 const { openDatabase, createRepository } = require('./db');
 const { createAuth } = require('./auth');
@@ -46,6 +47,16 @@ function createRuntime(overrides = {}) {
 
   ingest = createIngest({ repo, hub, log });
 
+  // El monitor de notas corre dentro del backend: si el servicio se reinicia,
+  // él también, y su estado se consulta por HTTP.
+  const monitor = crearMonitor({
+    appRoot: path.resolve(process.cwd()),
+    baseUrl: `http://127.0.0.1:${config.port}`,
+    token: config.token,
+    intervalMs: config.monitorIntervalMs,
+    log,
+  });
+
   const publicDir = path.join(__dirname, '..', 'public');
   const app = createHttpApp({
     config,
@@ -56,6 +67,7 @@ function createRuntime(overrides = {}) {
     log,
     publicDir,
     startedAt,
+    monitor,
   });
   server.on('request', app);
 
@@ -95,6 +107,7 @@ function createRuntime(overrides = {}) {
           pid: process.pid,
           public_url: config.publicUrl || null,
         });
+        if (config.monitorEnabled) monitor.arrancar();
         resolve(address);
       });
     });
@@ -102,6 +115,7 @@ function createRuntime(overrides = {}) {
 
   async function close() {
     clearInterval(pruneTimer);
+    monitor.detener();
     hub.close();
     if (server.listening) {
       await new Promise((resolve) => server.close(resolve));
@@ -110,7 +124,7 @@ function createRuntime(overrides = {}) {
     await log.close();
   }
 
-  return { config, log, db, repo, auth, hub, ingest, app, server, start, close };
+  return { config, log, db, repo, auth, hub, ingest, app, server, start, close, monitor };
 }
 
 module.exports = { createRuntime };
