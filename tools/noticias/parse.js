@@ -183,17 +183,14 @@ function analizar(entrada) {
   // Solo se marca si la nota dice dónde fue (colonia, comunidad, carretera,
   // "a la altura de"). Caer al centro del municipio llenaba el mapa de puntos
   // falsos en la capital para cualquier nota que mencionara "Colima".
-  // En Manzanillo, Tecomán o Armería la nota suele ocurrir en la cabecera, así
-  // que el municipio sirve. En la zona conurbada Colima-Villa no: ahí se exige
-  // colonia, comunidad, carretera o "a la altura de".
-  const capital = lugar.tipo === 'municipio' && /^(colima|villa de alvarez)$/i.test(lugar.nombre);
-  if (lugar.precision !== 'marca explicita' && lugar.tipo !== 'localidad' && capital) {
-    return null;
-  }
+  // Si solo se menciona el municipio, el punto es la cabecera: se acepta pero
+  // la etiqueta lo dice con "(aprox)" para que nadie lo confunda con una
+  // ubicación exacta. Antes se descartaba en Colima/Villa y se perdía la nota.
+  const porMunicipio = lugar.tipo === 'municipio' && lugar.precision !== 'marca explicita';
 
   const tiempo = hora(texto, entrada.publicado);
   const municipio = gazetteer.municipioDe(lugar.lat, lugar.lon);
-  const donde = lugar.tipo === 'municipio' ? lugar.nombre : `${lugar.nombre}`;
+  const donde = lugar.nombre;
 
   const huella = crypto
     .createHash('sha256')
@@ -213,10 +210,10 @@ function analizar(entrada) {
     municipio,
     lat: Number(lugar.lat.toFixed(6)),
     lon: Number(lugar.lon.toFixed(6)),
-    precision_lugar: lugar.precision,
+    precision_lugar: porMunicipio ? 'municipio (aprox)' : lugar.precision,
     fecha_hecho: tiempo.fecha.toISOString(),
     precision_hora: tiempo.precision,
-    etiqueta: recortar(`${mejor.tipo} · ${donde}`, 64),
+    etiqueta: recortar(`${mejor.tipo} · ${donde}${porMunicipio ? ' (aprox)' : ''}`, 64),
   };
 }
 

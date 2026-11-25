@@ -160,7 +160,10 @@ function ubicar(texto) {
     if (!m) continue;
     const candidato = buscarRecortando(m[1]);
     if (candidato && (!mejor || peso > mejor.peso)) {
-      mejor = { ...candidato, peso, precision: 'marca explicita' };
+      // 'nombre' = el lugar existe tal cual; 'contenido' = se reconoció dentro
+      // de una frase más larga (menos fiable, se marca como aproximada).
+      const precision = candidato.precision === 'nombre' ? 'marca explicita' : 'marca aproximada';
+      mejor = { ...candidato, peso, precision };
     }
   }
   if (mejor) return limpiar(mejor);

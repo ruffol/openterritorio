@@ -19,6 +19,7 @@ const fb = require('./fb');
 
 const FUENTES = [
   { nombre: 'afmedios', url: 'https://afmedios.com/feed/' },
+  { nombre: 'noticiasmanzanillo', url: 'https://noticiasmanzanillo.com/feed/' },
   { nombre: 'colimanoticias', url: 'https://www.colimanoticias.com/feed/' },
   {
     nombre: 'gnews-homicidio',
@@ -32,6 +33,22 @@ const FUENTES = [
     nombre: 'gnews-crimen',
     url: 'https://news.google.com/rss/search?q=Colima+cuerpo+sin+vida+OR+asesinato+OR+robo&hl=es-419&gl=MX&ceid=MX:es-419',
   },
+  {
+    nombre: 'gnews-manzanillo',
+    url: 'https://news.google.com/rss/search?q=Manzanillo+Colima+homicidio+OR+accidente&hl=es-419&gl=MX&ceid=MX:es-419',
+  },
+  {
+    nombre: 'gnews-crimen-col',
+    url: 'https://news.google.com/rss/search?q=%22Colima%22+(asesinato+OR+balacera+OR+volcadura+OR+atropellado)+when:2d&hl=es-419&gl=MX&ceid=MX:es-419',
+  },
+];
+
+// Portales que no publican RSS: se toman los titulares de su portada.
+const PORTADAS = [
+  { nombre: 'elpulsodecolima', url: 'https://elpulsodecolima.com/' },
+  { nombre: 'meganoticias', url: 'https://meganoticias.mx/' },
+  { nombre: 'diariodecolima', url: 'https://diariodecolima.com/' },
+  { nombre: 'colima360', url: 'https://colima360.mx/' },
 ];
 
 const UA = 'openterritorio/1.0 (monitor de notas de Colima; srtlalchichi@gmail.com)';
@@ -77,6 +94,37 @@ function leerRSS(xml, fuente) {
       url: enlace,
       publicado: fecha ? Date.parse(fecha) : Date.now(),
     });
+  }
+  return notas;
+}
+
+// Titulares de una portada que huelen a crimen o accidente.
+const TITULAR = /<a[^>]+href="([^"]+)"[^>]*>([\s\S]{25,200}?)<\/a>/g;
+
+async function leerPortada(fuente) {
+  const respuesta = await fetch(fuente.url, {
+    headers: { 'User-Agent': UA },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+  const html = await respuesta.text();
+
+  const notas = [];
+  const vistas = new Set();
+  for (const m of html.matchAll(TITULAR)) {
+    const enlace = m[1];
+    const titulo = decodificar(m[2]);
+    if (titulo.length < 25 || vistas.has(titulo)) continue;
+    if (!/homicid|ejecutad|asesinat|balacer|cadaver|cuerpo sin vida|acribillad|sicari|choque|volcadur|atropell|accidente|motociclis|asalto|robo|herido|lesionad|detenid|fallecid/i.test(titulo)) continue;
+    vistas.add(titulo);
+    notas.push({
+      texto: titulo,
+      fuente: fuente.nombre,
+      url: new URL(enlace, fuente.url).toString(),
+      publicado: Date.now(),
+    });
+    if (notas.length >= 8) break;
   }
   return notas;
 }
@@ -146,6 +194,19 @@ async function main() {
       } catch (error) {
         errores.push(`${fuente.nombre}: ${error.message}`);
         console.log(`${fuente.nombre}: error ${error.message}`);
+      }
+    }),
+  );
+
+  // Portales sin RSS: solo los titulares que huelen a nota de crimen/accidente.
+  await Promise.all(
+    PORTADAS.map(async (portal) => {
+      try {
+        const notas = await leerPortada(portal);
+        todas.push(...notas);
+        console.log(`${portal.nombre}: ${notas.length} titulares de portada`);
+      } catch (error) {
+        console.log(`${portal.nombre}: sin portada (${error.message})`);
       }
     }),
   );
