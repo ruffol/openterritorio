@@ -11,10 +11,39 @@
 
 const { spawnSync } = require('node:child_process');
 
-function crearVigiaTunel({ log, servicio = 'cloudflared', intervaloMs = 60_000 }) {
+function crearVigiaTunel({
+  log,
+  servicio = 'cloudflared',
+  intervaloMs = 60_000,
+  publicUrl = '',
+  enfriamientoMs = 5 * 60_000,
+}) {
   let timer = null;
   let primera = null;
-  const estado = { revisiones: 0, reinicios: 0, ultima: null, ultimoEstado: null };
+  let ultimoReinicio = 0;
+  const estado = {
+    revisiones: 0,
+    reinicios: 0,
+    ultima: null,
+    ultimoEstado: null,
+    publico: null,
+  };
+
+  /** ¿El dominio responde? Es la prueba real: el proceso puede estar vivo y
+   *  el túnel muerto (pasó con el cambio de red). */
+  async function publicoResponde() {
+    if (!publicUrl) return null;
+    try {
+      const respuesta = await fetch(`${publicUrl.replace(/\/+$/, '')}/healthz`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      estado.publico = respuesta.status;
+      return respuesta.ok;
+    } catch (error) {
+      estado.publico = `sin respuesta: ${error.name}`;
+      return false;
+    }
+  }
 
   function correr(args) {
     const resultado = spawnSync('sv', args, { encoding: 'utf8' });
@@ -22,7 +51,28 @@ function crearVigiaTunel({ log, servicio = 'cloudflared', intervaloMs = 60_000 }
     return `${resultado.stdout || ''}${resultado.stderr || ''}`.trim();
   }
 
-  function revisar() {
+  async function revisar() {
+    // 1) Si el dominio público no responde, se reinicia el túnel (con freno).
+    const vivo = await publicoResponde();
+    if (vivo === false) {
+      if (Date.now() - ultimoReinicio < enfriamientoMs) {
+        log.warn('túnel caído; esperando el enfriamiento antes de reiniciar');
+        return;
+      }
+      const resultado = correr(['restart', servicio]);
+      ultimoReinicio = Date.now();
+      estado.reinicios += 1;
+      estado.revisiones += 1;
+      estado.ultima = new Date().toISOString();
+      log.warn('túnel reiniciado por el vigía', {
+        servicio,
+        publico: estado.publico,
+        resultado: (resultado || '').slice(0, 120),
+      });
+      return;
+    }
+
+    // 2) Si el servicio no está corriendo, se levanta.
     const salida = correr(['status', servicio]);
     if (salida === null) return;
 
@@ -44,11 +94,15 @@ function crearVigiaTunel({ log, servicio = 'cloudflared', intervaloMs = 60_000 }
 
   return {
     arrancar() {
-      primera = setTimeout(revisar, 15_000);
-      timer = setInterval(revisar, intervaloMs);
+      primera = setTimeout(() => revisar().catch(() => {}), 20_000);
+      timer = setInterval(() => revisar().catch(() => {}), intervaloMs);
       primera.unref?.();
       timer.unref?.();
-      log.info('vigía del túnel activo', { servicio, cada_s: Math.round(intervaloMs / 1000) });
+        log.info('vigía del túnel activo', {
+        servicio,
+        cada_s: Math.round(intervaloMs / 1000),
+        publico: publicUrl || '(sin PUBLIC_URL: solo vigila el proceso)',
+      });
     },
     detener() {
       if (primera) clearTimeout(primera);

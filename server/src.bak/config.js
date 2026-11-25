@@ -77,7 +77,9 @@ function buildConfig(overrides = {}) {
     trustCfHeader: process.env.TRUST_CF_HEADER !== '0',
     authFailWindowMs: num(process.env.AUTH_FAIL_WINDOW_MS, 60 * 1000),
     authFailMax: num(process.env.AUTH_FAIL_MAX, 20),
-    publicUrl: process.env.PUBLIC_URL || '',
+    // Dominio del despliegue: el vigía del túnel lo consulta para saber si el
+    // túnel está realmente sirviendo (no basta con que el proceso viva).
+    publicUrl: process.env.PUBLIC_URL || 'https://tienda.tlalchichi.xyz',
     logLevel: process.env.LOG_LEVEL || 'info',
   };
 

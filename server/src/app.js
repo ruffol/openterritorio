@@ -61,6 +61,7 @@ function createRuntime(overrides = {}) {
   const vigiaTunel = crearVigiaTunel({
     log,
     servicio: config.tunnelService,
+    publicUrl: config.publicUrl,
   });
 
   const publicDir = path.join(__dirname, '..', 'public');

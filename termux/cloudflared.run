@@ -1,0 +1,20 @@
+#!/data/data/com.termux/files/usr/bin/sh
+# runit: túnel de Cloudflare para este servidor.
+#
+# Ojo: el DNS de Go no funciona en Termux (no hay /etc/resolv.conf y cae en
+# ::1:53), así que cloudflared no puede resolver los SRV del edge. Por eso se
+# fijan las IPs con --edge y se fuerza http2 (UDP/QUIC puede estar bloqueado
+# en redes de hotel, oficina o datos móviles).
+exec 2>&1
+export PREFIX=/data/data/com.termux/files/usr
+export HOME=/data/data/com.termux/files/home
+export PATH=$PREFIX/bin:/system/bin:/system/xbin
+exec "$HOME/bin/cloudflared-edge" \
+  --edge 198.41.192.7:7844 \
+  --edge 198.41.192.167:7844 \
+  --edge 198.41.200.13:7844 \
+  --edge 198.41.200.113:7844 \
+  --protocol http2 \
+  --config "$HOME/.cloudflared/config.yml" \
+  --loglevel info \
+  tunnel run 55a19ff5-fe1e-489c-8eb4-f93a37af90d1
