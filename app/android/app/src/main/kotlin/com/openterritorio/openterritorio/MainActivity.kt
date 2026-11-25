@@ -1,8 +1,10 @@
 package com.openterritorio.openterritorio
 
 import android.app.PendingIntent
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import androidx.core.content.FileProvider
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.BatteryManager
@@ -98,6 +100,13 @@ class MainActivity : FlutterActivity() {
             return
         }
 
+        // 1) Vía preferida: abrir el instalador del sistema con un content://
+        //    (FileProvider). Es la ruta que respetan MIUI, HyperOS y One UI; las
+        //    sesiones de PackageInstaller en segundo plano fallan ahí con
+        //    "error del instalador" sin explicar nada.
+        if (installWithIntent(file, result)) return
+
+        // 2) Respaldo: sesión de PackageInstaller (sin ventana intermedia).
         try {
             val params = PackageInstaller.SessionParams(
                 PackageInstaller.SessionParams.MODE_FULL_INSTALL,
@@ -141,6 +150,26 @@ class MainActivity : FlutterActivity() {
             result.success("ok")
         } catch (error: Exception) {
             result.error("install", error.message ?: error.toString(), null)
+        }
+    }
+
+
+    /** Abre el instalador del sistema con el APK; devuelve false si no hay quién lo atienda. */
+    private fun installWithIntent(file: File, result: MethodChannel.Result): Boolean {
+        return try {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            result.success("ok")
+            true
+        } catch (_: ActivityNotFoundException) {
+            false
+        } catch (_: Exception) {
+            false
         }
     }
 

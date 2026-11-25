@@ -342,7 +342,6 @@ class BoardPainter extends CustomPainter {
     }
 
     if (!simplify) _drawRoads(canvas, size);
-    _drawPlaces(canvas, size);
     if (!simplify) _drawStreetNames(canvas, size);
     _drawLandmarks(canvas, size);
 
@@ -661,66 +660,6 @@ class BoardPainter extends CustomPainter {
       canvas.rotate(angle);
       painter.paint(canvas, Offset(-painter.width / 2, -painter.height - 1));
       canvas.restore();
-      dibujadas++;
-    }
-  }
-
-  void _drawPlaces(Canvas canvas, Size size) {
-    // Con OSM los topónimos ya vienen impresos en la tesela.
-    if (viewport.layer == MapLayerId.osm) return;
-    if (!_usaVectores) {
-      // Respaldo si los vectores no cargaron: las cabeceras a mano.
-      const places = <(String, double, double)>[
-        ('COLIMA', 19.2433, -103.7247),
-        ('VILLA DE ÁLVAREZ', 19.2647, -103.7444),
-        ('COMALA', 19.3237, -103.7600),
-        ('MANZANILLO', 19.1138, -104.3267),
-        ('TECOMÁN', 18.9108, -103.8747),
-        ('ARMERÍA', 18.9383, -103.9642),
-        ('VOLCÁN DE COLIMA', 19.5144, -103.6186),
-      ];
-      for (final (name, lat, lon) in places) {
-        final at = viewport.project(lat, lon, size);
-        if (at.dx < -120 || at.dx > size.width + 120) continue;
-        if (at.dy < -20 || at.dy > size.height + 20) continue;
-        _text(canvas, name, at + const Offset(5, -5), _muted, size: 10, shadow: true);
-      }
-      return;
-    }
-
-    final zoom = viewport.zoom;
-    final northWest = viewport.geoAt(Offset.zero, size);
-    final southEast = viewport.geoAt(Offset(size.width, size.height), size);
-    // De lejos solo las ciudades; al acercarse aparecen colonias y ranchos.
-    final minHab = zoom >= 13.2 ? 0 : (zoom >= 11.5 ? 400 : (zoom >= 10.2 ? 5000 : 20000));
-
-    final locs = VectorData.localidadesIn(
-      northWest.lon,
-      southEast.lat,
-      southEast.lon,
-      northWest.lat,
-    ).where((l) => l.habitantes >= minHab).toList();
-
-    final ocupado = _LabelGrid(size);
-    var dibujadas = 0;
-    for (final localidad in locs) {
-      if (dibujadas >= 45) break;
-      final at = viewport.project(localidad.lat, localidad.lon, size);
-      if (!size.contains(at)) continue;
-      final grande = localidad.habitantes >= 20000;
-      final ancho = localidad.name.length * (grande ? 7.6 : 5.6);
-      if (!ocupado.tomar(at, ancho)) continue;
-      final color = grande
-          ? const Color(0xFFF2F7FF)
-          : (localidad.urbana ? const Color(0xFFC9D8EA) : _muted);
-      _text(
-        canvas,
-        localidad.name,
-        at + const Offset(4, -15),
-        color,
-        size: grande ? 13 : (localidad.urbana ? 11 : 9.5),
-        shadow: true,
-      );
       dibujadas++;
     }
   }

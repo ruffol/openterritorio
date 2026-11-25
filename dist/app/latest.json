@@ -1,10 +1,10 @@
 {
-  "version": "0.8.0",
-  "version_code": 19,
+  "version": "0.8.1",
+  "version_code": 20,
   "apk": "openterritorio.apk",
-  "size_bytes": 81581311,
-  "sha256": "d63081ea9340fc1add5ac8690d881efd4ffc14a90bae548bd96ce33d7a3f5ab8",
-  "notes": "Mapa OpenStreetMap unico (ideas fuera), sin capa vectorial encima, repintado mas ligero y APK 17 MB mas chico",
-  "published_at": "2026-11-25T01:03:00.480431Z",
+  "size_bytes": 81549219,
+  "sha256": "2e1e0eba83f17a0350d31b0fff882f995bbbf24d1df52b1ea4af11032e4b420b",
+  "notes": "Instalador: abre el instalador del sistema (arregla el error al actualizar). Sin marcadores de ejemplo, solo los tuyos.",
+  "published_at": "2026-11-25T02:40:47.757002Z",
   "url": ""
 }

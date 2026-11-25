@@ -1,7 +1,7 @@
 name: openterritorio
 description: Cliente tactico offline-first para OPENTERITORIO (mapas, GPS y eventos).
 publish_to: 'none'
-version: 0.8.0+19
+version: 0.8.1+20
 
 environment:
   sdk: '>=3.13.0 <4.0.0'
