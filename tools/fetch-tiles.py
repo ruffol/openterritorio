@@ -101,7 +101,12 @@ def build_url(layer, z, x, y):
 def plan(layer):
     """El estado completo hasta z15; las ciudades, con detalle hasta z17."""
     jobs = {}
-    state_levels = (10, 11, 12, 13, 14, 15) if layer == "oscuro" else (10, 11, 12, 13)
+    if layer == "oscuro":
+        state_levels = (10, 11, 12, 13, 14, 15)
+    elif layer == "osm":
+        state_levels = (10, 11, 12, 13, 14)
+    else:
+        state_levels = (10, 11, 12, 13)
     for z in state_levels:
         for t in tiles_for(STATE, z):
             jobs[t] = "estado"
@@ -111,9 +116,11 @@ def plan(layer):
         patch_levels = (16, 17)
         other_levels = (16,)
     elif layer == "osm":
-        fine = ()
-        patch_levels = (14, 15)
-        other_levels = (14, 15)
+        # OSM es la capa que queda en la app: el estado hasta z14 y detalle
+        # z15-z17 en las ciudades (las teselas son pesadas, hay que medir).
+        fine = ("colima", "villa")
+        patch_levels = (15, 16)
+        other_levels = (15,)
     else:  # inegi: ~5 s por tesela
         fine = ()
         patch_levels = (14,)
@@ -137,13 +144,16 @@ def fetch(job, layer, outdir):
             req = urllib.request.Request(url, headers={"User-Agent": UA})
             with urllib.request.urlopen(req, timeout=60) as r:
                 raw = r.read()
-            if len(raw) < 500:
-                raise ValueError(f"tesela vacía ({len(raw)} bytes)")
             if b"Access blocked" in raw or b"tile usage policy" in raw:
                 # Límite de los servidores voluntarios de OSM: esperar y reintentar.
                 time.sleep(5 + 3 * intento)
                 raise RuntimeError("bloqueado por política de uso")
-            im = Image.open(io.BytesIO(raw)).convert("RGB")
+            # Ojo: una tesela de mar abierto pesa ~250 bytes y es perfectamente
+            # válida; el tamaño no sirve como prueba de error.
+            try:
+                im = Image.open(io.BytesIO(raw)).convert("RGB")
+            except Exception as exc:
+                raise ValueError(f"respuesta no es imagen ({len(raw)} bytes)") from exc
             if im.size != (256, 256):
                 im = im.resize((256, 256))
             im.save(path, "JPEG", quality=82, optimize=True)

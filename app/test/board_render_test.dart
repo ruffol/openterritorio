@@ -131,8 +131,8 @@ void main() {
     const size = Size(400, 700);
     await _seedTiles(MapLayerId.oscuro, 19.2433, -103.7247, radius: 5);
 
-    final zoomedOut = MapViewport(zoom: 13);
-    final zoomedIn = MapViewport(zoom: 16);
+    final zoomedOut = MapViewport(zoom: 13, layer: MapLayerId.oscuro);
+    final zoomedIn = MapViewport(zoom: 16, layer: MapLayerId.oscuro);
     final state = AppState()..selfId = 2001;
 
     final (imgOut, rgbaOut) = await _paintBoard(state, zoomedOut, size);
@@ -168,7 +168,12 @@ void main() {
     final seeded = await _seedTiles(MapLayerId.oscuro, lat, lon, radius: 3);
     expect(seeded, greaterThan(4));
 
-    final viewport = MapViewport(centerLat: lat, centerLon: lon, zoom: 16);
+    final viewport = MapViewport(
+      centerLat: lat,
+      centerLon: lon,
+      zoom: 16,
+      layer: MapLayerId.oscuro,
+    );
     final state = AppState()..selfId = 2001;
     final (image, rgba) = await _paintBoard(state, viewport, size);
     await _save(image, 'board_universidad.png');
@@ -290,7 +295,7 @@ void main() {
 
     const size = Size(500, 800);
     await _seedTiles(MapLayerId.oscuro, 19.2437, -103.7247, radius: 3);
-    final viewport = MapViewport()..goTo(19.2437, -103.7247, zoom: 16);
+    final viewport = MapViewport(layer: MapLayerId.oscuro)..goTo(19.2437, -103.7247, zoom: 16);
     final state = AppState()..selfId = 4001;
 
     final enVista = VectorData.viasIn(-103.75, 19.235, -103.70, 19.255).length;

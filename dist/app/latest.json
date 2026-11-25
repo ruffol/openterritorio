@@ -1,10 +1,10 @@
 {
-  "version": "0.7.1",
-  "version_code": 18,
+  "version": "0.8.0",
+  "version_code": 19,
   "apk": "openterritorio.apk",
-  "size_bytes": 98746637,
-  "sha256": "f793eb162957d29ce9a58e4b77dedc999db535453a1c3713fe1365bcb7935f3e",
-  "notes": "OTA desde GitHub (no gasta datos del servidor), icono nuevo y mensajes de error claros",
-  "published_at": "2026-11-24T19:24:38.8227984Z",
+  "size_bytes": 81581311,
+  "sha256": "d63081ea9340fc1add5ac8690d881efd4ffc14a90bae548bd96ce33d7a3f5ab8",
+  "notes": "Mapa OpenStreetMap unico (ideas fuera), sin capa vectorial encima, repintado mas ligero y APK 17 MB mas chico",
+  "published_at": "2026-11-25T01:03:00.480431Z",
   "url": ""
 }

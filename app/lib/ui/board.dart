@@ -22,7 +22,7 @@ enum MapLayerId {
 }
 
 /// Capas incluidas en esta compilación (el selector solo ofrece estas).
-const List<MapLayerId> kShippedLayers = <MapLayerId>[MapLayerId.oscuro];
+const List<MapLayerId> kShippedLayers = <MapLayerId>[MapLayerId.osm];
 
 /// Estado de cámara del tablero: centro, zoom continuo y capa activa.
 ///
@@ -33,11 +33,12 @@ class MapViewport extends ChangeNotifier {
     this.centerLat = 19.2433,
     this.centerLon = -103.7247,
     this.zoom = 15,
-    this.layer = MapLayerId.oscuro,
+    this.layer = MapLayerId.osm,
   });
 
   static const double minZoom = 10;
-  static const double maxZoom = 18;
+  // Las teselas llegan a z16: más allá se vería ampliado y borroso.
+  static const double maxZoom = 17;
   static const int tileSize = 256;
 
   double centerLat;
@@ -129,7 +130,7 @@ class OfflineTiles {
   OfflineTiles._();
 
   static const int minZoom = 10;
-  static const int maxZoom = 18;
+  static const int maxZoom = 17;
 
   /// Teselas decodificadas que se conservan (96 × 256² ≈ 25 MB).
   static int capacity = 96;
@@ -209,14 +210,13 @@ class TacticalBoard extends StatefulWidget {
 class _TacticalBoardState extends State<TacticalBoard> {
   Offset _lastFocal = Offset.zero;
   double _lastScale = 1;
+  bool _moviendo = false;
 
   @override
   void initState() {
     super.initState();
-    OfflineTiles.revision.addListener(_refresh);
-    widget.viewport.addListener(_refresh);
-    // Vías y topónimos vectoriales (INEGI): se siguen leyendo sin bloquear el
-    // primer cuadro y, al terminar, el tablero se repinta con texto nítido.
+    // Vías y topónimos vectoriales (INEGI): se leen sin bloquear el primer
+    // cuadro y, al terminar, se repinta una sola vez.
     VectorData.load().then((_) => _refresh());
   }
 
@@ -226,8 +226,6 @@ class _TacticalBoardState extends State<TacticalBoard> {
 
   @override
   void dispose() {
-    OfflineTiles.revision.removeListener(_refresh);
-    widget.viewport.removeListener(_refresh);
     super.dispose();
   }
 
@@ -241,6 +239,10 @@ class _TacticalBoardState extends State<TacticalBoard> {
           onScaleStart: (details) {
             _lastFocal = details.localFocalPoint;
             _lastScale = 1;
+            if (!_moviendo) setState(() => _moviendo = true);
+          },
+          onScaleEnd: (details) {
+            if (_moviendo) setState(() => _moviendo = false);
           },
           onScaleUpdate: (details) {
             final delta = details.localFocalPoint - _lastFocal;
@@ -259,9 +261,20 @@ class _TacticalBoardState extends State<TacticalBoard> {
             final at = _doubleTapAt ?? size.center(Offset.zero);
             widget.viewport.zoomAt(at, 2.0, size);
           },
-          child: CustomPaint(
-            painter: BoardPainter(widget.state, widget.viewport),
-            child: SizedBox(width: size.width, height: size.height),
+          child: RepaintBoundary(
+            child: CustomPaint(
+              painter: BoardPainter(
+                widget.state,
+                widget.viewport,
+                simplify: _moviendo,
+                // Repintar sin reconstruir el árbol: al cargar una tesela o
+                // mover la cámara solo se vuelve a pintar el lienzo.
+                repaint: Listenable.merge(
+                  <Listenable>[widget.viewport, widget.state, OfflineTiles.revision],
+                ),
+              ),
+              child: SizedBox(width: size.width, height: size.height),
+            ),
           ),
         );
       },
@@ -272,11 +285,37 @@ class _TacticalBoardState extends State<TacticalBoard> {
 }
 
 class BoardPainter extends CustomPainter {
-  BoardPainter(this.state, this.viewport, {this.fontFamily});
+  BoardPainter(
+    this.state,
+    this.viewport, {
+    this.fontFamily,
+    this.simplify = false,
+    super.repaint,
+  });
 
   final AppState state;
   final MapViewport viewport;
   final String? fontFamily;
+
+  /// Con el dedo en la pantalla se omiten las capas caras (vías y nombres de
+  /// calle) para que el arrastre no se sienta pesado.
+  final bool simplify;
+
+  /// Caché de etiquetas ya maquetadas: en cada cuadro se repiten los mismos
+  /// nombres y volver a medirlos cuesta caro.
+  static final Map<String, TextPainter> _labels = <String, TextPainter>{};
+
+  static TextPainter label(String text, TextStyle style, String key) {
+    final cached = _labels[key];
+    if (cached != null) return cached;
+    if (_labels.length > 260) _labels.clear();
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    _labels[key] = painter;
+    return painter;
+  }
 
   static const _bg = Color(0xFF0B0F14);
   static const _grid = Color(0xFF1B2634);
@@ -302,9 +341,9 @@ class BoardPainter extends CustomPainter {
       );
     }
 
-    _drawRoads(canvas, size);
+    if (!simplify) _drawRoads(canvas, size);
     _drawPlaces(canvas, size);
-    _drawStreetNames(canvas, size);
+    if (!simplify) _drawStreetNames(canvas, size);
     _drawLandmarks(canvas, size);
 
     for (final alert in state.alerts) {
@@ -535,6 +574,10 @@ class BoardPainter extends CustomPainter {
     }
   }
 
+  /// Las vías y topónimos vectoriales solo se pintan cuando el mapa base no
+  /// trae nombres (capa oscura). Sobre OSM se duplicarían y ensuciarían.
+  bool get _usaVectores => VectorData.ready && viewport.layer != MapLayerId.osm;
+
   static const _roadCarretera = Color(0xFFFFC24B);
   static const _roadCalle = Color(0xFF9AB0C8);
   static const _roadCamino = Color(0xFF7C8B9C);
@@ -542,7 +585,7 @@ class BoardPainter extends CustomPainter {
   /// Vías del INEGI dibujadas como líneas: se mantienen finas y rectas a
   /// cualquier zoom, sin el dentado del ráster ampliado.
   void _drawRoads(Canvas canvas, Size size) {
-    if (!VectorData.ready) return;
+    if (!_usaVectores) return;
     final zoom = viewport.zoom;
     if (zoom < 10.5) return;
 
@@ -560,10 +603,12 @@ class BoardPainter extends CustomPainter {
     final calle = stroke(_roadCalle.withValues(alpha: zoom >= 15 ? 0.55 : 0.32), zoom >= 15 ? 2.0 : 1.1);
     final camino = stroke(_roadCamino.withValues(alpha: 0.30), 1.0);
 
+    var dibujadas = 0;
     for (final via in VectorData.viasIn(northWest.lon, southEast.lat, southEast.lon, northWest.lat)) {
       // Las calles solo de cerca y las veredas solo de lejos: si no, se tapa el mapa.
       if (via.kind == 0 && zoom < 13.2) continue;
       if (via.kind == 2 && zoom > 15.5) continue;
+      if (++dibujadas > 900) break; // techo por cuadro en celulares modestos
 
       final path = Path();
       for (var i = 0; i < via.points; i++) {
@@ -581,7 +626,7 @@ class BoardPainter extends CustomPainter {
 
   /// Nombres de calle nítidos a zoom alto, girados con la propia vía.
   void _drawStreetNames(Canvas canvas, Size size) {
-    if (!VectorData.ready || viewport.zoom < 15.8) return;
+    if (!_usaVectores || viewport.zoom < 15.8) return;
     final northWest = viewport.geoAt(Offset.zero, size);
     final southEast = viewport.geoAt(Offset(size.width, size.height), size);
 
@@ -602,17 +647,15 @@ class BoardPainter extends CustomPainter {
       if (angle > math.pi / 2) angle -= math.pi;
       if (angle < -math.pi / 2) angle += math.pi;
 
-      final painter = TextPainter(
-        text: TextSpan(
-          text: via.name,
-          style: const TextStyle(
-            color: Color(0xFFD7E3F2),
-            fontSize: 9.5,
-            shadows: [Shadow(color: Color(0xEE000000), blurRadius: 3)],
-          ),
+      final painter = BoardPainter.label(
+        via.name,
+        const TextStyle(
+          color: Color(0xFFD7E3F2),
+          fontSize: 9.5,
+          shadows: [Shadow(color: Color(0xEE000000), blurRadius: 3)],
         ),
-        textDirection: TextDirection.ltr,
-      )..layout();
+        'calle:${via.name}',
+      );
       canvas.save();
       canvas.translate(pa.dx, pa.dy);
       canvas.rotate(angle);
@@ -623,7 +666,9 @@ class BoardPainter extends CustomPainter {
   }
 
   void _drawPlaces(Canvas canvas, Size size) {
-    if (!VectorData.ready) {
+    // Con OSM los topónimos ya vienen impresos en la tesela.
+    if (viewport.layer == MapLayerId.osm) return;
+    if (!_usaVectores) {
       // Respaldo si los vectores no cargaron: las cabeceras a mano.
       const places = <(String, double, double)>[
         ('COLIMA', 19.2433, -103.7247),
@@ -654,8 +699,7 @@ class BoardPainter extends CustomPainter {
       southEast.lat,
       southEast.lon,
       northWest.lat,
-    ).where((l) => l.habitantes >= minHab).toList()
-      ..sort((a, b) => b.habitantes.compareTo(a.habitantes));
+    ).where((l) => l.habitantes >= minHab).toList();
 
     final ocupado = _LabelGrid(size);
     var dibujadas = 0;
@@ -720,7 +764,7 @@ class BoardPainter extends CustomPainter {
   }
 
   void _drawAttribution(Canvas canvas, Size size) {
-    final creditos = VectorData.ready
+    final creditos = _usaVectores
         ? '${viewport.layer.attribution} · vías y nombres © INEGI 1:50 000'
         : viewport.layer.attribution;
     final painter = TextPainter(

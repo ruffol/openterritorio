@@ -49,7 +49,9 @@ class VectorData {
       final decodedLoc = jsonDecode(
         utf8.decode(GZipCodec().decode(rawLoc.buffer.asUint8List())),
       ) as Map<String, dynamic>;
-      _localidades = [
+      // Ordenadas una sola vez por población: el tablero las recorre tal cual
+      // y se ahorra clasificar miles de elementos en cada cuadro.
+      final localidades = [
         for (final item in (decodedLoc['localidades'] as List))
           Localidad(
             (item[0] as num).toDouble(),
@@ -57,7 +59,8 @@ class VectorData {
             item[2] as String,
             (item[3] as num).toInt(),
           ),
-      ];
+      ]..sort((a, b) => b.habitantes.compareTo(a.habitantes));
+      _localidades = localidades;
 
       _index();
       ready = true;
