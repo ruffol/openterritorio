@@ -251,7 +251,18 @@ function readLandmarks(config) {
 let bootedAt = Date.now();
 let lastDeploy = null;
 
-function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, startedAt , monitor }) {
+function createHttpApp({
+  config,
+  repo,
+  auth,
+  ingest,
+  hub,
+  log,
+  publicDir,
+  startedAt,
+  monitor,
+  vigiaTunel,
+}) {
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', true);
@@ -614,6 +625,7 @@ function createHttpApp({ config, repo, auth, ingest, hub, log, publicDir, starte
       booted_at: new Date(bootedAt).toISOString(),
       uptime_s: Math.round((Date.now() - bootedAt) / 1000),
       deployed: lastDeploy,
+      tunel: typeof vigiaTunel?.estado === 'function' ? vigiaTunel.estado() : null,
     });
   });
 

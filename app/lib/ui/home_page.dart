@@ -235,6 +235,11 @@ class _HomePageState extends State<HomePage> {
   void _tick() {
     _ticks += 1;
     if (_ticks % 6 == 1) unawaited(_refreshBattery());
+    // Si el enlace está caído, reintenta la foto del estado cada minuto: así
+    // la app se recupera sola cuando el túnel del teléfono vuelve.
+    if (_ticks % 12 == 0 && _state.link != LinkState.connected) {
+      _refreshState();
+    }
     if (_state.simulating) {
       _simStep += 1;
       final lat = 19.2433 + math.sin(_simStep / 3) * 0.0009;

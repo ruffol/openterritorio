@@ -4,6 +4,7 @@ const http = require('node:http');
 const path = require('node:path');
 const { buildConfig } = require('./config');
 const { crearMonitor } = require('./monitor');
+const { crearVigiaTunel } = require('./watchdog');
 const { createLogger } = require('./log');
 const { openDatabase, createRepository } = require('./db');
 const { createAuth } = require('./auth');
@@ -57,6 +58,11 @@ function createRuntime(overrides = {}) {
     log,
   });
 
+  const vigiaTunel = crearVigiaTunel({
+    log,
+    servicio: config.tunnelService,
+  });
+
   const publicDir = path.join(__dirname, '..', 'public');
   const app = createHttpApp({
     config,
@@ -68,6 +74,7 @@ function createRuntime(overrides = {}) {
     publicDir,
     startedAt,
     monitor,
+    vigiaTunel,
   });
   server.on('request', app);
 
@@ -108,6 +115,7 @@ function createRuntime(overrides = {}) {
           public_url: config.publicUrl || null,
         });
         if (config.monitorEnabled) monitor.arrancar();
+        if (config.tunnelWatchdog) vigiaTunel.arrancar();
         resolve(address);
       });
     });
@@ -116,6 +124,7 @@ function createRuntime(overrides = {}) {
   async function close() {
     clearInterval(pruneTimer);
     monitor.detener();
+    vigiaTunel.detener();
     hub.close();
     if (server.listening) {
       await new Promise((resolve) => server.close(resolve));
@@ -124,7 +133,7 @@ function createRuntime(overrides = {}) {
     await log.close();
   }
 
-  return { config, log, db, repo, auth, hub, ingest, app, server, start, close, monitor };
+  return { config, log, db, repo, auth, hub, ingest, app, server, start, close, monitor, vigiaTunel };
 }
 
 module.exports = { createRuntime };

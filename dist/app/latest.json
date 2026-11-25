@@ -1,10 +1,10 @@
 {
-  "version": "0.9.0",
-  "version_code": 22,
+  "version": "0.9.1",
+  "version_code": 23,
   "apk": "openterritorio.apk",
   "size_bytes": 81582107,
-  "sha256": "7793cb1f898b09bcf31fe60ff78c22f558aea65e7682a1f10a51af43285c069e",
-  "notes": "Toca un evento y veras la cita completa de la nota y cuantas fuentes la publicaron; fuera equipos simulados",
-  "published_at": "2026-11-25T05:55:01.732201Z",
+  "sha256": "3c6410f6c09c714df716333a72c65c4e74ffa2b144472b462cded0e417e4ce6b",
+  "notes": "Reconexion automatica cada minuto y aviso claro cuando el servidor no tiene tunel (530)",
+  "published_at": "2026-11-25T18:43:06.737551Z",
   "url": ""
 }

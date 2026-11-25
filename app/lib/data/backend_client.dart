@@ -35,6 +35,16 @@ class _QueuedPacket {
 /// - Reconexión exponencial con jitter (1 s … 30 s).
 /// - Los paquetes que no se pueden enviar se encolan un tiempo acotado para no
 ///   inundar el servidor con posiciones viejas al recuperar cobertura.
+
+/// Mensaje legible para los códigos que devuelve Cloudflare cuando el túnel
+/// del teléfono está caído (el origen no responde).
+String mensajeHttp(int codigo) {
+  if (codigo == 530 || codigo == 502 || codigo == 503 || codigo == 504) {
+    return 'servidor sin túnel ($codigo): el teléfono no alcanza Cloudflare';
+  }
+  return 'HTTP $codigo';
+}
+
 class BackendClient {
   BackendClient({
     required String baseUrl,
@@ -229,7 +239,7 @@ class BackendClient {
       throw BackendException('token rechazado (401)');
     }
     if (response.statusCode != 200) {
-      throw BackendException('HTTP ${response.statusCode}');
+      throw BackendException(mensajeHttp(response.statusCode));
     }
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
     if (decoded is! Map<String, dynamic>) {
@@ -250,7 +260,7 @@ class BackendClient {
       throw BackendException('token rechazado (401)');
     }
     if (response.statusCode != 200) {
-      throw BackendException('HTTP ${response.statusCode}');
+      throw BackendException(mensajeHttp(response.statusCode));
     }
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
     if (decoded is! Map<String, dynamic>) {
@@ -273,7 +283,7 @@ class BackendClient {
       throw BackendException('token rechazado (401)');
     }
     if (response.statusCode != 200) {
-      throw BackendException('HTTP ${response.statusCode}');
+      throw BackendException(mensajeHttp(response.statusCode));
     }
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
     if (decoded is! Map<String, dynamic>) {

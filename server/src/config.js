@@ -56,6 +56,10 @@ function buildConfig(overrides = {}) {
     // Monitor de notas dentro del backend (lee RSS de los medios y publica
     // eventos temporales). MONITOR=0 lo apaga.
     monitorEnabled: process.env.MONITOR !== '0',
+    // Vigía del túnel: si el teléfono cambia de red y cloudflared se cae, lo
+    // levanta solo cada minuto.
+    tunnelWatchdog: process.env.TUNNEL_WATCHDOG !== '0',
+    tunnelService: process.env.TUNNEL_SERVICE || 'cloudflared',
     monitorIntervalMs: Number(process.env.MONITOR_INTERVAL_MS || 15 * 60 * 1000),
     // Puntos fijos del tablero (se pueden editar por API sin tocar la app).
     landmarksFile: path.resolve(process.cwd(), process.env.LANDMARKS_FILE || 'landmarks.json'),
