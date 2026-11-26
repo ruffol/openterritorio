@@ -50,6 +50,8 @@ function eventJSON(row) {
     texto: row.texto || '',
     imagen: row.imagen || '',
     enlace: row.enlace || '',
+    // Cómo de exacta es la ubicación: 'municipio (aprox)' pinta un halo en la app.
+    precision: row.precision || '',
     fuentes: (() => {
       if (!row.fuentes) return [];
       try {
@@ -394,8 +396,9 @@ function createHttpApp({
         : [];
       const imagen = String(body.imagen || '').slice(0, 400);
       const enlace = String(body.enlace || '').slice(0, 400);
-      if (texto || fuentes.length > 0 || imagen || enlace) {
-        repo.setEventDetails(packet.packet_id, { texto, fuentes, imagen, enlace });
+      const precision = String(body.precision || '').slice(0, 40);
+      if (texto || fuentes.length > 0 || imagen || enlace || precision) {
+        repo.setEventDetails(packet.packet_id, { texto, fuentes, imagen, enlace, precision });
       }
 
       // Si la nota no trajo foto, se busca el og:image aquí mismo. Va sin
@@ -405,7 +408,7 @@ function createHttpApp({
         imagenDeNota(enlace)
           .then((foto) => {
             if (!foto) return;
-            repo.setEventDetails(packetId, { texto, fuentes, imagen: foto, enlace });
+            repo.setEventDetails(packetId, { texto, fuentes, imagen: foto, enlace, precision });
             log.info('imagen de la nota añadida', { enlace: enlace.slice(0, 80) });
           })
           .catch(() => {});

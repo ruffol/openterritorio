@@ -81,6 +81,9 @@ async function publicarEvento(nota) {
       fuentes: nota.fuentes && nota.fuentes.length > 0 ? nota.fuentes : [nota.fuente],
       imagen: nota.imagen || '',
       enlace: nota.url || '',
+      // La app dibuja un halo en vez de un pin cuando la ubicación es solo el
+      // municipio: un punto exacto en el centro de Colima engaña.
+      precision: nota.precision_lugar || '',
     }),
   });
   if (!respuesta.ok) {

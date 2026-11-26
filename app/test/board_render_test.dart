@@ -371,4 +371,69 @@ void main() {
     expect(_nonBackgroundRatio(rgba), greaterThan(0.5));
     await _save(image, 'board_operativo.png');
   });
+
+  test('un suceso del que solo se sabe el municipio pinta halo y no pin seco', () async {
+    const size = Size(400, 700);
+    await _seedTiles(MapLayerId.oscuro, 19.2433, -103.7247);
+    final viewport = MapViewport(zoom: 14);
+
+    // Mismo tablero, con y sin el suceso aproximado.
+    final sin = AppState()..selfId = 2001;
+    final con = AppState()..selfId = 2001;
+    con.applySnapshot(<String, dynamic>{
+      'events': [
+        {
+          'id': 1,
+          'packet_id': 'aa11bb22cc33dd44',
+          'lat': 19.2433,
+          'lon': -103.7247,
+          'category_id': 4,
+          'short_note': 'Homicidio · Colima (aprox)',
+          'precision': 'municipio (aprox)',
+        },
+      ],
+    });
+
+    final (_, base) = await _paintBoard(sin, viewport, size);
+    final (imagen, halo) = await _paintBoard(con, viewport, size);
+
+    // A 1 200 m del centro debe notarse el tinte del halo; el pin (14 px) no llega ahí.
+    final desplazamiento = (1200 / viewport.metersPerPixel).round();
+    final x = (size.width / 2).round() + desplazamiento;
+    final y = (size.height / 2).round();
+    int pixel(List<int> rgba, int px, int py) {
+      final i = (py * size.width.round() + px) * 4;
+      return (rgba[i] - rgba[i - 0]).abs(); // comprobación de índice
+    }
+
+    // Suma de diferencias de color en el punto lejano.
+    int diferencia(List<int> otros, List<int> baseRgba) {
+      final i = (y * size.width.round() + x) * 4;
+      return (otros[i] - baseRgba[i]).abs() +
+          (otros[i + 1] - baseRgba[i + 1]).abs() +
+          (otros[i + 2] - baseRgba[i + 2]).abs();
+    }
+
+    expect(x < size.width.round() && y < size.height.round(), isTrue);
+    expect(pixel(halo, x, y), greaterThanOrEqualTo(0));
+    expect(diferencia(halo, base), greaterThan(6));
+    await _save(imagen, 'board_halo_aproximado.png');
+  });
+
+  test('el evento trae su precisión del servidor', () {
+    final exacto = EventMarker.fromJson(<String, dynamic>{
+      'packet_id': 'aa11',
+      'lat': 19.25,
+      'lon': -103.72,
+      'precision': 'hora exacta',
+    });
+    final aproximado = EventMarker.fromJson(<String, dynamic>{
+      'packet_id': 'bb22',
+      'lat': 19.25,
+      'lon': -103.72,
+      'precision': 'municipio (aprox)',
+    });
+    expect(exacto.aproximado, isFalse);
+    expect(aproximado.aproximado, isTrue);
+  });
 }

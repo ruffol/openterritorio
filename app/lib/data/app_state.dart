@@ -75,6 +75,7 @@ class EventMarker {
     this.fuentes = const <String>[],
     this.imagen = '',
     this.enlace = '',
+    this.precision = '',
   });
 
   final String id;
@@ -92,6 +93,14 @@ class EventMarker {
   final String imagen;
   final String enlace;
 
+  /// Exactitud de la ubicación tal como la publicó el servidor. Cuando solo se
+  /// conoce el municipio ("municipio (aprox)") el tablero pinta un halo en vez
+  /// de un pin: un punto exacto en el centro de la capital sería mentira.
+  final String precision;
+
+  bool get aproximado =>
+      precision.contains('aprox') || precision.startsWith('municipio');
+
   factory EventMarker.fromPacket(TacticalPacket packet, EventPayload payload) {
     return EventMarker(
       id: packet.packetIdHex,
@@ -104,6 +113,7 @@ class EventMarker {
       fuentes: const <String>[],
       imagen: '',
       enlace: '',
+      precision: '',
     );
   }
 
@@ -119,6 +129,7 @@ class EventMarker {
       texto: json['texto']?.toString() ?? '',
       imagen: json['imagen']?.toString() ?? '',
       enlace: json['enlace']?.toString() ?? '',
+      precision: json['precision']?.toString() ?? '',
       fuentes: [
         for (final f in (json['fuentes'] is List ? json['fuentes'] as List : const []))
           if (f is String && f.isNotEmpty) f,

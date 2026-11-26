@@ -609,6 +609,25 @@ class _HomePageState extends State<HomePage> {
                 cuando,
                 style: Theme.of(context).textTheme.labelSmall,
               ),
+              if (evento.aproximado) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.blur_on,
+                      size: 14,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Ubicación aproximada: la nota solo precisa el municipio.',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               if (evento.imagen.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 ClipRRect(

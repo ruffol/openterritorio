@@ -1,10 +1,10 @@
 {
-  "version": "0.10.0",
-  "version_code": 24,
+  "version": "0.11.0",
+  "version_code": 25,
   "apk": "openterritorio.apk",
-  "size_bytes": 82223470,
-  "sha256": "b7de5036753d937d752df4c997b1d3db08b26d7bc10cd9ae689fd390cac98adb",
-  "notes": "Foto y enlace en el detalle del suceso, linea del tiempo de 15 min con barra para avanzar y retroceder",
+  "size_bytes": 82223742,
+  "sha256": "040b6fb35c47982b2275c93704d6e913e20a568a643c91e5c04f43754b7c31ac",
+  "notes": "Sucesos que solo dicen el municipio ya no se pintan como pin exacto: halo translucido de 2.5 km y aviso en el detalle",
   "published_at": "2026-11-25T20:32:51.111809Z",
   "url": ""
 }

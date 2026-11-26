@@ -65,7 +65,9 @@ const PORTADAS = [
   { nombre: 'elpulsodecolima', url: 'https://elpulsodecolima.com/' },
   { nombre: 'meganoticias', url: 'https://meganoticias.mx/' },
   { nombre: 'diariodecolima', url: 'https://diariodecolima.com/' },
-  { nombre: 'colima360', url: 'https://colima360.mx/' },
+  // colima360.mx ya no existe: 1.1.1.1 y 8.8.8.8 devuelven NXDOMAIN desde
+  // cualquier red, así que no es bloqueo de la operadora. Si reaparece con otro
+  // dominio, se agrega aquí (o su canal de Telegram en TELEGRAM).
 ];
 
 const UA = 'openterritorio/1.0 (monitor de notas de Colima; srtlalchichi@gmail.com)';

@@ -361,6 +361,10 @@ class BoardPainter extends CustomPainter {
   static const _muted = Color(0xFF9AAABF);
   static const _peerColor = Color(0xFF35C2FF);
   static const _ownColor = Color(0xFF3DDC84);
+  /// Radio del halo que representa la incertidumbre de un suceso del que solo
+  /// se conoce el municipio. Se ajusta aquí y no en el código de dibujo.
+  static const double haloRadioM = 2500;
+
   static const _eventColor = Color(0xFFFFB020);
 
   @override
@@ -410,6 +414,28 @@ class BoardPainter extends CustomPainter {
       final corte = hastaTs;
       if (corte != null && event.ts > corte) continue; // aún no ocurría
       final center = viewport.project(event.lat, event.lon, size);
+
+      // Suceso del que solo se sabe el municipio: halo de incertidumbre en vez
+      // de un pin, para no afirmar que pasó en el centro exacto de la ciudad.
+      if (event.aproximado) {
+        final radioPx = haloRadioM / viewport.metersPerPixel;
+        if (radioPx > 8 && radioPx < size.shortestSide * 6) {
+          canvas.drawCircle(
+            center,
+            radioPx,
+            Paint()..color = _eventColor.withValues(alpha: 0.12),
+          );
+          canvas.drawCircle(
+            center,
+            radioPx,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.4
+              ..color = _eventColor.withValues(alpha: 0.5),
+          );
+        }
+      }
+
       final path = Path()
         ..moveTo(center.dx, center.dy - 7)
         ..lineTo(center.dx + 7, center.dy)

@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS events (
   texto       TEXT,
   fuentes     TEXT,
   imagen      TEXT,
-  enlace      TEXT
+  enlace      TEXT,
+  precision   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_ms);
 
@@ -96,6 +97,7 @@ function openDatabase(dbPath) {
     'fuentes TEXT',
     'imagen TEXT',
     'enlace TEXT',
+    'precision TEXT',
   ]) {
     try {
       db.exec(`ALTER TABLE events ADD COLUMN ${columna}`);
@@ -174,7 +176,7 @@ function createRepository(db) {
     ),
     setEventExpiry: db.prepare('UPDATE events SET expires_ms = ? WHERE packet_id = ?'),
     setEventDetails: db.prepare(
-      'UPDATE events SET texto = ?, fuentes = ?, imagen = ?, enlace = ? WHERE packet_id = ?',
+      'UPDATE events SET texto = ?, fuentes = ?, imagen = ?, enlace = ?, precision = ? WHERE packet_id = ?',
     ),
     deleteEvent: db.prepare('DELETE FROM events WHERE packet_id = ?'),
     deletePeer: db.prepare('DELETE FROM peers WHERE sender_id = ?'),
@@ -344,12 +346,13 @@ function createRepository(db) {
 
   /** Texto completo, fuentes, imagen y enlace de la nota. */
   function setEventDetails(packetId, detalles) {
-    const { texto = '', fuentes = [], imagen = '', enlace = '' } = detalles || {};
+    const { texto = '', fuentes = [], imagen = '', enlace = '', precision = '' } = detalles || {};
     return statements.setEventDetails.run(
       texto,
       JSON.stringify(fuentes),
       imagen,
       enlace,
+      precision,
       packetId,
     );
   }
