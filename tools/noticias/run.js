@@ -16,6 +16,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { analizar } = require('./parse');
+const { analizarNota } = require('./evaluar');
 const { NoticiasDB } = require('./db');
 
 const BASE = (process.env.OPENTERITORIO_URL || 'https://tienda.tlalchichi.xyz').replace(/\/+$/, '');
@@ -106,9 +107,9 @@ async function main() {
 
   const resumen = [];
   for (const entrada of entradas) {
-    const nota = analizar(entrada);
+    const { nota, motivo, rescatada } = await analizarNota(entrada);
     if (!nota) {
-      resumen.push({ estado: 'descartada', texto: entrada.texto.slice(0, 60) });
+      resumen.push({ estado: 'descartada', motivo, texto: entrada.texto.slice(0, 60) });
       continue;
     }
     const { estado, nota: guardada } = db.agregar(nota);
@@ -127,6 +128,7 @@ async function main() {
     }
     resumen.push({
       estado,
+      rescatada: rescatada === true,
       tipo: nota.tipo,
       lugar: nota.lugar,
       municipio: nota.municipio,

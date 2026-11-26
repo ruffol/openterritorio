@@ -157,6 +157,7 @@ function recortar(texto, maxBytes) {
  */
 function analizar(entrada, opciones = {}) {
   const explicar = opciones.explicar === true;
+  const lugarExtra = opciones.lugarExtra || null;
   const descartar = (motivo) => (explicar ? { motivo } : null);
   const texto = String(entrada.texto || '').replace(/\s+/g, ' ').trim();
   if (texto.length < 40) return descartar('texto muy corto');
@@ -179,7 +180,8 @@ function analizar(entrada, opciones = {}) {
     return descartar('menciona accidente sin contexto vial');
   }
 
-  const lugar = gazetteer.ubicar(texto);
+  // Si el llamador ya resolvió el lugar (Nominatim), manda ese.
+  const lugar = lugarExtra || gazetteer.ubicar(texto);
   if (!lugar) return descartar('sin lugar reconocible'); // sin ubicación no hay mapa
 
   // Solo se marca si la nota dice dónde fue (colonia, comunidad, carretera,
@@ -219,4 +221,39 @@ function analizar(entrada, opciones = {}) {
   };
 }
 
-module.exports = { analizar, hora, recortar, TIPOS };
+/**
+ * Nombre del lugar tal como se menciona ("colonia El Diezmo" -> "el diezmo").
+ * Sirve para geocodificarlo cuando el gacetero no lo conoce.
+ */
+function lugarMencionado(texto) {
+  const limpio = ` ${nrm(texto)} `;
+  const marcas = [
+    /municipio\s+de\s+([a-z0-9 ]{3,40})/,
+    /(?:colonia|fraccionamiento|unidad habitacional|barrio|andador)\s+(?:de\s+|la\s+|el\s+|las\s+|los\s+)?([a-z0-9 ]{3,40})/,
+    /(?:comunidad|poblado|ejido|rancho|localidad|delegacion)\s+(?:de\s+|la\s+|el\s+|las\s+|los\s+)?([a-z0-9 ]{3,40})/,
+    /a la altura de\s+(?:la\s+|el\s+|las\s+|los\s+)?([a-z0-9 ]{3,40})/,
+  ];
+  for (const re of marcas) {
+    const m = limpio.match(re);
+    if (!m) continue;
+    // Se recorta a las primeras palabras: "el diezmo colima" -> "el diezmo".
+    const palabras = m[1].trim().split(' ');
+    for (let n = Math.min(palabras.length, 4); n >= 1; n--) {
+      const intento = palabras.slice(0, n).join(' ').trim();
+      if (intento.length >= 4) return intento;
+    }
+  }
+  return '';
+}
+
+/** Municipio mencionado en el texto, si lo hay. */
+function municipioMencionado(texto) {
+  const limpio = nrm(texto);
+  const nombres = ['villa de alvarez', 'colima', 'manzanillo', 'tecoman', 'comala', 'coquimatlan', 'cuauhtemoc', 'ixtlahuacan', 'minatitlan', 'armeria'];
+  for (const nombre of nombres) {
+    if (limpio.includes(nombre)) return nombre;
+  }
+  return '';
+}
+
+module.exports = { analizar, hora, recortar, TIPOS, lugarMencionado, municipioMencionado };

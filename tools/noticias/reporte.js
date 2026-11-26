@@ -14,7 +14,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { analizar } = require('./parse');
-const { FUENTES, PORTADAS, descargar, leerPortada, cuerpoDe } = require('./fetch');
+const { analizarNota } = require('./evaluar');
+const { FUENTES, PORTADAS, SITEMAPS, descargar, leerPortada, leerSitemap, cuerpoDe } = require('./fetch');
 const { NoticiasDB } = require('./db');
 
 const SOSPECHOSO = /homicid|ejecutad|asesinat|balacer|cadaver|cuerpo sin vida|acribillad|sicari|choque|volcadur|atropell|accidente|motociclis|asalto|robo|herido|lesionad|detenid|fallecid/i;
@@ -57,6 +58,34 @@ async function recolectar(horas) {
         fuentes.push({
           nombre: fuente.nombre,
           tipo: 'RSS',
+          url: fuente.url,
+          estado: `error: ${error.message}`,
+          items: 0,
+          recientes: 0,
+          masNueva: 0,
+        });
+      }
+    }),
+  );
+
+  await Promise.all(
+    SITEMAPS.map(async (fuente) => {
+      try {
+        const notas = await leerSitemap(fuente, horas);
+        fuentes.push({
+          nombre: `${fuente.nombre} (sitemap)`,
+          tipo: 'sitemap',
+          url: fuente.url,
+          estado: notas.length > 0 ? 'ok' : 'sin notas nuevas',
+          items: notas.length,
+          recientes: notas.length,
+          masNueva: notas.reduce((max, n) => Math.max(max, n.publicado || 0), 0),
+        });
+        todas.push(...notas);
+      } catch (error) {
+        fuentes.push({
+          nombre: `${fuente.nombre} (sitemap)`,
+          tipo: 'sitemap',
           url: fuente.url,
           estado: `error: ${error.message}`,
           items: 0,
@@ -147,28 +176,31 @@ async function main() {
   const horas = argv.includes('--horas') ? Number(argv[argv.indexOf('--horas') + 1]) : 72;
 
   console.log(`recolectando (ventana ${horas} h)…`);
+  const telefono = await estadoTelefono();
   const { fuentes, todas, unicas, sospechosas, abiertas } = await recolectar(horas);
 
   const db = new NoticiasDB(path.join(__dirname, 'noticias.json'));
   const motivos = new Map();
   const eventos = [];
 
+  let rescatadas = 0;
   for (const nota of unicas) {
     const texto = nota.detalle ? `${nota.texto}. ${nota.detalle}` : nota.texto;
-    const resultado = analizar({ ...nota, texto }, { explicar: true });
-    if (resultado && resultado.motivo) {
-      motivos.set(resultado.motivo, (motivos.get(resultado.motivo) || 0) + 1);
+    const { nota: resultado, motivo, rescatada } = await analizarNota({ ...nota, texto });
+    if (motivo) {
+      motivos.set(motivo, (motivos.get(motivo) || 0) + 1);
     } else if (resultado) {
+      if (rescatada) rescatadas += 1;
       eventos.push({ ...resultado, fuente: nota.fuente, url: nota.url, imagen: nota.imagen || '' });
     }
   }
 
-  const guardadas = db.notas.length;
+  // La base que importa es la del teléfono (el JSON local solo existe si se
+  // ejecutó aquí); se prefiere el dato de producción.
+  const guardadas = telefono?.resultado?.guardadas ?? db.notas.length;
   const conImagen = db.notas.filter((n) => n.imagen).length;
   const porTipo = {};
   for (const n of db.notas) porTipo[n.tipo] = (porTipo[n.tipo] || 0) + 1;
-
-  const telefono = await estadoTelefono();
 
   const ahora = new Date().toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
   const embudo = [
@@ -177,6 +209,7 @@ async function main() {
     ['Candidatas por palabra clave', sospechosas.length],
     ['Artículos abiertos para leer el cuerpo', abiertas],
     ['Sucesos con tipo + lugar (van al mapa)', eventos.length],
+    ['  de ellos ubicados por geocodificación OSM', rescatadas],
   ];
   const base = Math.max(1, todas.length);
 

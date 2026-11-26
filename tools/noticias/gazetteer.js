@@ -220,4 +220,91 @@ function municipioDe(lat, lon) {
   return mejor;
 }
 
-module.exports = { cargar, buscar, ubicar, normalizar, municipioDe, MUNICIPIOS, titulo };
+// ---------------------------------------------------------------------------
+// Geocodificación bajo demanda (Nominatim) para lo que el gacetero no conoce:
+// colonias, fraccionamientos y referencias urbanas. Se consulta como máximo
+// una vez por minuto por nombre y el resultado se guarda en disco.
+// ---------------------------------------------------------------------------
+
+const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+const CACHE = path.join(__dirname, 'colonias-cache.json');
+let cacheColonias = null;
+
+function cargarCache() {
+  if (cacheColonias) return cacheColonias;
+  try {
+    cacheColonias = JSON.parse(fs.readFileSync(CACHE, 'utf8'));
+  } catch {
+    cacheColonias = {};
+  }
+  return cacheColonias;
+}
+
+function guardarCache() {
+  try {
+    fs.writeFileSync(CACHE, JSON.stringify(cacheColonias, null, 1));
+  } catch {
+    // sin permisos de escritura la caché vive solo en memoria
+  }
+}
+
+let ultimaConsulta = 0;
+
+/**
+ * Busca un nombre de lugar urbano en OpenStreetMap.
+ * @returns {Promise<null | {lat:number, lon:number, nombre:string, tipo:string, precision:string}>}
+ */
+async function geocodificar(nombre, municipio) {
+  const limpio = String(nombre || '').trim();
+  if (limpio.length < 4) return null;
+
+  const clave = `${normalizar(limpio)}|${normalizar(municipio || '')}`;
+  const cacheActual = cargarCache();
+  if (Object.prototype.hasOwnProperty.call(cacheActual, clave)) return cacheActual[clave];
+
+  // Nominatim pide 1 petición por segundo como máximo.
+  const espera = Math.max(0, 1100 - (Date.now() - ultimaConsulta));
+  if (espera > 0) await new Promise((r) => setTimeout(r, espera));
+  ultimaConsulta = Date.now();
+
+  const consulta = `${limpio}, ${municipio || 'Colima'}, Colima, Mexico`;
+  try {
+    const url = `${NOMINATIM}?format=jsonv2&limit=5&countrycodes=mx&q=${encodeURIComponent(consulta)}`;
+    const respuesta = await fetch(url, {
+      headers: {
+        'User-Agent': 'openterritorio/1.0 (monitor de noticias; srtlalchichi@gmail.com)',
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!respuesta.ok) return null;
+    const lista = await respuesta.json();
+    if (!Array.isArray(lista) || lista.length === 0) {
+      cacheActual[clave] = null;
+      guardarCache();
+      return null;
+    }
+    // Solo vale si cae dentro de Colima y cerca del municipio mencionado.
+    const centro = MUNICIPIOS[normalizar(municipio || 'colima')];
+    let elegido = null;
+    for (const item of lista) {
+      const lat = Number(item.lat);
+      const lon = Number(item.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      if (lat < 18.6 || lat > 19.7 || lon < -104.75 || lon > -103.4) continue;
+      if (centro) {
+        const d = Math.hypot((lat - centro[0]) * 111, (lon - centro[1]) * 105);
+        if (d > 30) continue;
+      }
+      elegido = { lat, lon, nombre: titulo(limpio), tipo: 'geocodificado', precision: 'geocodificado (OSM)' };
+      break;
+    }
+    cacheActual[clave] = elegido;
+    guardarCache();
+    return elegido;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { cargar, buscar, ubicar, normalizar, municipioDe, MUNICIPIOS, titulo, geocodificar, _cache: () => cargarCache() };

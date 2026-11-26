@@ -43,6 +43,14 @@ const FUENTES = [
   },
 ];
 
+// Medios cuyo RSS está atrasado o no existe: se les lee el sitemap, que los
+// medios actualizan al instante para Google y es texto ligero.
+const SITEMAPS = [
+  { nombre: 'colimanoticias', url: 'https://www.colimanoticias.com/sitemap.xml' },
+  { nombre: 'meganoticias', url: 'https://meganoticias.mx/sitemap.xml', filtro: /colima/i },
+  { nombre: 'elpulsodecolima', url: 'https://elpulsodecolima.com/sitemap.xml' },
+];
+
 // Portales que no publican RSS: se toman los titulares de su portada.
 const PORTADAS = [
   { nombre: 'elpulsodecolima', url: 'https://elpulsodecolima.com/' },
@@ -125,6 +133,85 @@ async function leerPortada(fuente) {
       publicado: Date.now(),
     });
     if (notas.length >= 8) break;
+  }
+  return notas;
+}
+
+/**
+ * Lee un sitemap (o un índice) y devuelve las URLs recientes cuyo titular huela
+ * a crimen o accidente. Usa `<news:title>` cuando el medio lo publica y, si no,
+ * el slug del enlace.
+ */
+async function leerSitemap(fuente, horas, profundidad = 0) {
+  const respuesta = await fetch(fuente.url, {
+    headers: { 'User-Agent': UA, Accept: 'application/xml, text/xml' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+  const xml = await respuesta.text();
+  const desde = Date.now() - horas * 3600_000;
+
+  // Índice de sitemaps: se eligen los hijos de notas/posts y se abren hasta 4.
+  if (/<sitemapindex/i.test(xml) && profundidad < 2) {
+    const hijos = [...xml.matchAll(/<sitemap>[\s\S]*?<\/sitemap>/g)]
+      .map((bloque) => {
+        const loc = (bloque[0].match(/<loc>([^<]+)</) || [])[1];
+        const numero = Number((loc || '').match(/-(\d+)\.xml/)?.[1] || 0);
+        return {
+          loc,
+          numero,
+          lastmod: Date.parse((bloque[0].match(/<lastmod>([^<]+)</) || [])[1] || 0) || 0,
+        };
+      })
+      .filter((h) => h.loc);
+    // Primero los que huelen a notas; si no hay, los más recientes.
+    // Ojo: "wp-sitemap-taxonomies-post_tag" también contiene "post"; las
+    // taxonomías (etiquetas, categorías, autores) no traen notas.
+    const deNotas = hijos.filter(
+      (h) => /posts?-post|wp-sitemap-posts|noticia|news|articulo|entrada/i.test(h.loc) &&
+        !/taxonom|post_tag|post-format|category|author/i.test(h.loc),
+    );
+    // Los sitemaps numerados van de lo más viejo a lo más nuevo (post-1 =
+    // 2013, post-8 = hoy), así que el número manda cuando falta lastmod.
+    const elegidos = (deNotas.length ? deNotas : hijos)
+      .sort((a, b) => b.lastmod - a.lastmod || b.numero - a.numero)
+      .slice(0, 4);
+
+    const notas = [];
+    for (const hijo of elegidos) {
+      try {
+        const parcial = await leerSitemap({ nombre: fuente.nombre, url: hijo.loc, filtro: fuente.filtro }, horas, profundidad + 1);
+        notas.push(...parcial);
+      } catch {
+        // un hijo caído no tumba el resto
+      }
+    }
+    return notas;
+  }
+
+  const notas = [];
+  const entradas = xml.match(/<url>[\s\S]*?<\/url>/g) || [];
+  for (const entrada of entradas) {
+    const loc = (entrada.match(/<loc>([^<]+)</) || [])[1];
+    if (!loc) continue;
+    const lastmod = (entrada.match(/<lastmod>([^<]+)</) || [])[1];
+    const fechaNota =
+      (entrada.match(/<news:publication_date>([^<]+)</) || [])[1] || lastmod;
+    const cuando = fechaNota ? Date.parse(fechaNota) : 0;
+    if (cuando && cuando < desde) continue;
+
+    // Titular real si el medio publica el news sitemap; si no, el slug.
+    const tituloNews = (entrada.match(/<news:title>([^<]+)</) || [])[1];
+    const slug = decodeURIComponent((loc.split('/').filter(Boolean).pop() || '').replace(/[-_]/g, ' '));
+    const titular = decodificar(tituloNews || slug);
+
+    if (fuente.filtro && !fuente.filtro.test(`${loc} ${titular}`)) continue;
+    if (!/homicid|ejecutad|asesinat|balacer|cadaver|cuerpo sin vida|acribillad|sicari|choque|volcadur|atropell|accidente|motociclis|asalto|robo |herido|lesionad|detenid|fallecid|localizan|vinculad/i.test(titular)) {
+      continue;
+    }
+    notas.push({ texto: titular, fuente: fuente.nombre, url: loc, publicado: cuando || Date.now() });
+    if (notas.length >= 12) break;
   }
   return notas;
 }
@@ -212,6 +299,19 @@ async function main() {
     }),
   );
 
+  // Sitemaps: lo que el RSS de esos medios no entrega (o entrega atrasado).
+  await Promise.all(
+    SITEMAPS.map(async (fuente) => {
+      try {
+        const notas = await leerSitemap(fuente, horas);
+        todas.push(...notas);
+        console.log(`${fuente.nombre} (sitemap): ${notas.length} notas candidatas`);
+      } catch (error) {
+        console.log(`${fuente.nombre} (sitemap): error ${error.message}`);
+      }
+    }),
+  );
+
   // Portales sin RSS: solo los titulares que huelen a nota de crimen/accidente.
   await Promise.all(
     PORTADAS.map(async (portal) => {
@@ -281,4 +381,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { FUENTES, PORTADAS, descargar, leerPortada, cuerpoDe, decodificar, leerRSS };
+module.exports = { FUENTES, PORTADAS, SITEMAPS, descargar, leerPortada, leerSitemap, cuerpoDe, decodificar, leerRSS };
