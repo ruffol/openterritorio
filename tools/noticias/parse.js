@@ -155,12 +155,14 @@ function recortar(texto, maxBytes) {
  * @param {{texto: string, fuente?: string, url?: string, publicado?: number}} entrada
  * @returns {null | object} nota relevante con coordenadas
  */
-function analizar(entrada) {
+function analizar(entrada, opciones = {}) {
+  const explicar = opciones.explicar === true;
+  const descartar = (motivo) => (explicar ? { motivo } : null);
   const texto = String(entrada.texto || '').replace(/\s+/g, ' ').trim();
-  if (texto.length < 40) return null;
+  if (texto.length < 40) return descartar('texto muy corto');
   const t = nrm(texto);
 
-  if (contar(RUIDO, t) >= 2) return null;
+  if (contar(RUIDO, t) >= 2) return descartar('ruido (prevención, clima, deportes, cultura)');
 
   let mejor = null;
   for (const familia of TIPOS) {
@@ -170,15 +172,15 @@ function analizar(entrada) {
     const score = aciertos + (familia.tipo === 'Accidente vial' ? 0.5 : 0);
     if (!mejor || score > mejor.score) mejor = { ...familia, score, aciertos };
   }
-  if (!mejor) return null;
+  if (!mejor) return descartar('sin tipo de suceso');
 
   // "Accidente" suelto sin contexto vial no basta.
   if (mejor.tipo === 'Accidente vial' && mejor.aciertos < 2 && !/vial|automovil|vehiculo|moto|camion|choque|volcadur/.test(t)) {
-    return null;
+    return descartar('menciona accidente sin contexto vial');
   }
 
   const lugar = gazetteer.ubicar(texto);
-  if (!lugar) return null; // sin ubicación no se pone nada en el mapa
+  if (!lugar) return descartar('sin lugar reconocible'); // sin ubicación no hay mapa
 
   // Solo se marca si la nota dice dónde fue (colonia, comunidad, carretera,
   // "a la altura de"). Caer al centro del municipio llenaba el mapa de puntos

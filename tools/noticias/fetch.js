@@ -274,7 +274,11 @@ async function main() {
   console.log(`guardadas ${unicas.length} notas en ${salida}${errores.length ? ` | ${errores.length} fuentes con error` : ''}`);
 }
 
-main().catch((error) => {
-  console.error('error:', error.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error('error:', error.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { FUENTES, PORTADAS, descargar, leerPortada, cuerpoDe, decodificar, leerRSS };
