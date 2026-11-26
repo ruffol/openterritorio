@@ -13,6 +13,18 @@ const crypto = require('node:crypto');
 const gazetteer = require('./gazetteer');
 
 // Vocabulario por tipo. Se cuentan aciertos y se queda el de mayor peso.
+// Notas que hablan de crimen pero no SON un suceso: estadísticas, balances,
+// convenios, foros. Llenaban el mapa de puntos que no corresponden a un hecho.
+const INSTITUCIONAL =
+  /tasa|estad[ií]stica|cifras|balance anual|observatorio|fortalece|firma convenio|capacita|capacitaci[oó]n|diplomado|foro|panel|conferencia|entrega (?:apoyos|obras)|informe de gobierno|presupuesto|diputad|legislatur|sesi[oó]n del congreso|pron[oó]stico|prevenci[oó]n del delito|operativo (?:de|en) (?:vigilancia|seguridad) (?:en|para) (?:la )?(?:feria|evento)/i;
+
+// El canal y el portal publican notas de todo el país. Si el titular nombra otro
+// estado y no menciona uno de Colima, no va al mapa de Colima.
+const OTRO_ESTADO =
+  /jalisco|guadalajara|zapotl[aá]n|ciudad guzm[aá]n|iztapalapa|ciudad de m[eé]xico|cdmx|mazatl[aá]n|sinaloa|michoac[aá]n|guanajuato|nayarit|puebla|oaxaca|veracruz|tijuana|monterrey/i;
+const DE_COLIMA =
+  /colima|manzanillo|tecom[aá]n|villa de [aá]lvarez|comala|coquimatl[aá]n|cuauht[eé]moc|ixtlahuac[aá]n|minatitl[aá]n|armer[ií]a|cu[ú]yutl[aá]n|suchitl[aá]n|pe[aá]a blanca|el trapiche/i;
+
 const TIPOS = [
   {
     tipo: 'Homicidio',
@@ -158,6 +170,9 @@ function recortar(texto, maxBytes) {
 function analizar(entrada, opciones = {}) {
   const explicar = opciones.explicar === true;
   const lugarExtra = opciones.lugarExtra || null;
+  // El titular manda para decidir el tipo de suceso; el lugar y la hora salen
+  // de todo el texto. Si no hay titular, se usa el texto completo.
+  const tTipo = opciones.titular ? nrm(opciones.titular) : '';
   const descartar = (motivo) => (explicar ? { motivo } : null);
   const texto = String(entrada.texto || '').replace(/\s+/g, ' ').trim();
   if (texto.length < 40) return descartar('texto muy corto');
@@ -165,10 +180,17 @@ function analizar(entrada, opciones = {}) {
 
   if (contar(RUIDO, t) >= 2) return descartar('ruido (prevención, clima, deportes, cultura)');
 
+  // El titular manda para decidir de qué se trata; si no hay titular, todo el
+  // texto. Así un cuerpo que menciona un accidente de otra nota no nos engaña.
+  const base = tTipo || t;
+
+  if (INSTITUCIONAL.test(base)) return descartar('nota de contexto (cifras, convenios, foros), no un suceso');
+  if (OTRO_ESTADO.test(base) && !DE_COLIMA.test(base)) return descartar('la nota es de otro estado');
+
   let mejor = null;
   for (const familia of TIPOS) {
-    if (contar(familia.descarte, t) > 0) continue;
-    const aciertos = contar(familia.peso, t);
+    if (contar(familia.descarte, base) > 0) continue;
+    const aciertos = contar(familia.peso, base);
     if (aciertos === 0) continue;
     const score = aciertos + (familia.tipo === 'Accidente vial' ? 0.5 : 0);
     if (!mejor || score > mejor.score) mejor = { ...familia, score, aciertos };
@@ -176,7 +198,7 @@ function analizar(entrada, opciones = {}) {
   if (!mejor) return descartar('sin tipo de suceso');
 
   // "Accidente" suelto sin contexto vial no basta.
-  if (mejor.tipo === 'Accidente vial' && mejor.aciertos < 2 && !/vial|automovil|vehiculo|moto|camion|choque|volcadur/.test(t)) {
+  if (mejor.tipo === 'Accidente vial' && mejor.aciertos < 2 && !/vial|automovil|vehiculo|moto|camion|choque|volcadur/.test(base)) {
     return descartar('menciona accidente sin contexto vial');
   }
 

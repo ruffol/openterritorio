@@ -13,7 +13,8 @@ const { analizar, lugarMencionado, municipioMencionado } = require('./parse');
 const gazetteer = require('./gazetteer');
 
 async function analizarNota(entrada) {
-  const conDetalle = analizar(entrada, { explicar: true });
+  const titular = entrada.titulo || '';
+  const conDetalle = analizar(entrada, { explicar: true, titular });
   const texto = String(entrada.texto || '');
 
   // Caso 1: descartada por no saber dónde fue.
@@ -24,7 +25,7 @@ async function analizarNota(entrada) {
     if (!nombre) return { motivo };
     const lugar = await gazetteer.geocodificar(nombre, municipioMencionado(texto));
     if (!lugar) return { motivo };
-    const rescatada = analizar(entrada, { lugarExtra: lugar });
+    const rescatada = analizar(entrada, { lugarExtra: lugar, titular });
     return rescatada ? { nota: rescatada, rescatada: true } : { motivo };
   }
 
@@ -38,7 +39,7 @@ async function analizarNota(entrada) {
     if (nombre) {
       const lugar = await gazetteer.geocodificar(nombre, municipioMencionado(texto));
       if (lugar) {
-        const fina = analizar(entrada, { lugarExtra: lugar });
+        const fina = analizar(entrada, { lugarExtra: lugar, titular });
         if (fina) return { nota: fina, rescatada: true };
       }
     }

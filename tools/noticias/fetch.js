@@ -256,6 +256,7 @@ async function leerTelegram(canal, horas) {
     const enlace = (bloque.match(/class="tgme_widget_message_link_preview[^"]*"[^>]+href="([^"]+)"/) || [])[1] || '';
 
     notas.push({
+      titulo: texto.slice(0, 200),
       texto,
       fuente: `tg:${canal}`,
       url: enlace || `https://t.me/${canal}`,
@@ -286,7 +287,8 @@ async function leerWordPress(fuente, horas) {
     const publicado = Date.parse(item.date || '') || 0;
     if (!texto || publicado < desde) continue;
     notas.push({
-      texto: `${titulo}. ${texto}`.slice(0, 2500),
+      titulo,
+      texto: texto.slice(0, 2500),
       fuente: fuente.nombre,
       url: item.link || fuente.url,
       publicado,

@@ -240,7 +240,11 @@ async function main() {
   let rescatadas = 0;
   for (const nota of unicas) {
     const texto = nota.detalle ? `${nota.texto}. ${nota.detalle}` : nota.texto;
-    const { nota: resultado, motivo, rescatada } = await analizarNota({ ...nota, texto });
+    const { nota: resultado, motivo, rescatada } = await analizarNota({
+      ...nota,
+      texto,
+      titulo: nota.titulo || '',
+    });
     if (motivo) {
       motivos.set(motivo, (motivos.get(motivo) || 0) + 1);
     } else if (resultado) {
