@@ -267,44 +267,63 @@ async function geocodificar(nombre, municipio) {
   if (espera > 0) await new Promise((r) => setTimeout(r, espera));
   ultimaConsulta = Date.now();
 
-  const consulta = `${limpio}, ${municipio || 'Colima'}, Colima, Mexico`;
-  try {
-    const url = `${NOMINATIM}?format=jsonv2&limit=5&countrycodes=mx&q=${encodeURIComponent(consulta)}`;
-    const respuesta = await fetch(url, {
-      headers: {
-        'User-Agent': 'openterritorio/1.0 (monitor de noticias; srtlalchichi@gmail.com)',
-        Accept: 'application/json',
-      },
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!respuesta.ok) return null;
-    const lista = await respuesta.json();
-    if (!Array.isArray(lista) || lista.length === 0) {
-      cacheActual[clave] = null;
-      guardarCache();
-      return null;
-    }
-    // Solo vale si cae dentro de Colima y cerca del municipio mencionado.
-    const centro = MUNICIPIOS[normalizar(municipio || 'colima')];
-    let elegido = null;
-    for (const item of lista) {
-      const lat = Number(item.lat);
-      const lon = Number(item.lon);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-      if (lat < 18.6 || lat > 19.7 || lon < -104.75 || lon > -103.4) continue;
-      if (centro) {
-        const d = Math.hypot((lat - centro[0]) * 111, (lon - centro[1]) * 105);
-        if (d > 30) continue;
+  const centro = MUNICIPIOS[normalizar(municipio || 'colima')];
+  // Se prueba primero sin el municipio: "Tapeixtles" es de Manzanillo aunque la
+  // nota venga firmada por "Colima Noticias".
+  const intentos = [
+    `${limpio}, Colima, Mexico`,
+    centro ? `${limpio}, ${municipio}, Colima, Mexico` : null,
+  ].filter(Boolean);
+
+  for (const [indice, consulta] of intentos.entries()) {
+    try {
+      const url = `${NOMINATIM}?format=jsonv2&limit=5&countrycodes=mx&q=${encodeURIComponent(consulta)}`;
+      const respuesta = await fetch(url, {
+        headers: {
+          'User-Agent': 'openterritorio/1.0 (monitor de noticias; srtlalchichi@gmail.com)',
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(20000),
+      });
+      if (respuesta.ok) {
+        const lista = await respuesta.json();
+        for (const item of Array.isArray(lista) ? lista : []) {
+          const lat = Number(item.lat);
+          const lon = Number(item.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+          // Dentro de Colima.
+          if (lat < 18.6 || lat > 19.7 || lon < -104.75 || lon > -103.4) continue;
+          // Sin el municipio de pista manda la coincidencia (Tapeixtles es de
+          // Manzanillo aunque la nota diga "Colima"); con la pista, se exige
+          // cercanía para no aceptar un homónimo lejano.
+          if (centro && indice > 0) {
+            const d = Math.hypot((lat - centro[0]) * 111, (lon - centro[1]) * 105);
+            if (d > 60) continue;
+          }
+          const esVia = item.class === 'highway' ||
+            /road|street|trunk|primary|secondary|tertiary|residential/.test(item.type || '');
+          const elegido = {
+            lat,
+            lon,
+            nombre: titulo(limpio),
+            tipo: esVia ? 'via' : 'geocodificado',
+            precision: esVia ? 'vía (OSM)' : 'geocodificado (OSM)',
+          };
+          cacheActual[clave] = elegido;
+          guardarCache();
+          return elegido;
+        }
       }
-      elegido = { lat, lon, nombre: titulo(limpio), tipo: 'geocodificado', precision: 'geocodificado (OSM)' };
-      break;
+    } catch {
+      // se intenta la siguiente forma de la consulta
     }
-    cacheActual[clave] = elegido;
-    guardarCache();
-    return elegido;
-  } catch {
-    return null;
+    // Nominatim pide 1 petición por segundo como máximo.
+    await new Promise((r) => setTimeout(r, 1100));
   }
+
+  cacheActual[clave] = null;
+  guardarCache();
+  return null;
 }
 
 module.exports = { cargar, buscar, ubicar, normalizar, municipioDe, MUNICIPIOS, titulo, geocodificar, _cache: () => cargarCache() };

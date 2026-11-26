@@ -244,21 +244,59 @@ function analizar(entrada, opciones = {}) {
 }
 
 /**
- * Nombre del lugar tal como se menciona ("colonia El Diezmo" -> "el diezmo").
- * Sirve para geocodificarlo cuando el gacetero no lo conoce.
+ * Nombre del lugar tal como se menciona, respetando mayúsculas: sirve para
+ * geocodificarlo cuando el gacetero no lo conoce.
+ *
+ * Casos que cubre (con ejemplos reales de las notas de Colima):
+ *   "sobre el libramiento Griselda Álvarez"      -> "Libramiento Griselda Álvarez"
+ *   "en la colonia El Diezmo"                    -> "El Diezmo"
+ *   "en Tapeixtles"                              -> "Tapeixtles"
+ *   "a la altura de la glorieta de El Naranjo"   -> "glorieta El Naranjo"
  */
 function lugarMencionado(texto) {
-  const limpio = ` ${nrm(texto)} `;
-  const marcas = [
-    /municipio\s+de\s+([a-z0-9 ]{3,40})/,
-    /(?:colonia|fraccionamiento|unidad habitacional|barrio|andador)\s+(?:de\s+|la\s+|el\s+|las\s+|los\s+)?([a-z0-9 ]{3,40})/,
-    /(?:comunidad|poblado|ejido|rancho|localidad|delegacion)\s+(?:de\s+|la\s+|el\s+|las\s+|los\s+)?([a-z0-9 ]{3,40})/,
-    /a la altura de\s+(?:la\s+|el\s+|las\s+|los\s+)?([a-z0-9 ]{3,40})/,
+  const crudo = String(texto || '').replace(/\s+/g, ' ');
+
+  // 1. Vías y referencias con marcador explícito (lo más común en accidentes).
+  const vias = [
+    /\b(libramiento|bulevar|boulevard|blvd\.?|avenida|av\.|calzada|perif[eé]rico|autopista|carretera|prolongaci[oó]n|glorieta|puente|retorno)\s+((?:de\s+|del\s+|la\s+|el\s+|las\s+|los\s+)?[A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*(?:\s+(?:de|del|la|las|los|y)?\s*[A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*){0,4})/,
   ];
+  for (const re of vias) {
+    const m = crudo.match(re);
+    if (m) {
+      const nombre = `${m[1]} ${m[2]}`.replace(/\s+/g, ' ').trim();
+      if (nombre.length >= 8) return nombre;
+    }
+  }
+
+  // 2. Colonias, comunidades y ranchos.
+  const marcas = [
+    /\b(?:colonia|fraccionamiento|unidad habitacional|barrio|andador|privada|residencial)\s+(?:de\s+|la\s+|el\s+|las\s+|los\s+)?([A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*){0,3})/,
+    /\b(?:comunidad|poblado|ejido|rancho|localidad|delegaci[oó]n|predio)\s+(?:de\s+|la\s+|el\s+|las\s+|los\s+)?([A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*){0,3})/,
+    /\ba la altura de\s+(?:la\s+|el\s+|las\s+|los\s+)?([A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*){0,3})/,
+    // "en Tapeixtles", "en Suchitlán": una sola palabra propia con mayúscula.
+    /\b(?:en|sobre|frente a|frente al|cerca de| rumbo a)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{4,}(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})?)\b/,
+  ];
+  const municipios = new Set([
+    'colima', 'villa de alvarez', 'manzanillo', 'tecoman', 'comala', 'coquimatlan',
+    'cuauhtemoc', 'ixtlahuacan', 'minatitlan', 'armeria', 'jalisco', 'mexico',
+  ]);
   for (const re of marcas) {
+    const m = crudo.match(re);
+    if (!m) continue;
+    const intento = m[1].replace(/\s+/g, ' ').trim();
+    if (intento.length < 4) continue;
+    if (municipios.has(nrm(intento))) continue; // "en Colima" es el municipio, no una colonia
+    return intento;
+  }
+
+  // 3. Último recurso: la versión sin mayúsculas (textos que llegan en minúsculas).
+  const limpio = ` ${nrm(texto)} `;
+  for (const re of [
+    /(?:colonia|fraccionamiento|unidad habitacional|barrio)\s+(?:de\s+|la\s+|el\s+|las\s+|los\s+)?([a-z0-9 ]{4,40})/,
+    /(?:comunidad|poblado|ejido|rancho|localidad|delegacion)\s+(?:de\s+|la\s+|el\s+|las\s+|los\s+)?([a-z0-9 ]{4,40})/,
+  ]) {
     const m = limpio.match(re);
     if (!m) continue;
-    // Se recorta a las primeras palabras: "el diezmo colima" -> "el diezmo".
     const palabras = m[1].trim().split(' ');
     for (let n = Math.min(palabras.length, 4); n >= 1; n--) {
       const intento = palabras.slice(0, n).join(' ').trim();

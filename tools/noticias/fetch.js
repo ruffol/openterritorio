@@ -18,7 +18,7 @@ const fs = require('node:fs');
 const fb = require('./fb');
 
 const FUENTES = [
-  { nombre: 'afmedios', url: 'https://afmedios.com/feed/' },
+  // afmedios entra por su API de WordPress (cuerpo completo, mejor que el RSS).
   { nombre: 'noticiasmanzanillo', url: 'https://noticiasmanzanillo.com/feed/' },
   { nombre: 'colimanoticias', url: 'https://www.colimanoticias.com/feed/' },
   {
@@ -49,6 +49,7 @@ const TELEGRAM = ['afmedios', 'diariodecolima', 'noticiascolima'];
 
 // Medios con WordPress: su API entrega el texto completo sin abrir el sitio.
 const WORDPRESS = [
+  { nombre: 'afmedios', url: 'https://www.afmedios.com' },
   { nombre: 'elpulsodecolima', url: 'https://elpulsodecolima.com' },
 ];
 

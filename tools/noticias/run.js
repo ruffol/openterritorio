@@ -14,6 +14,7 @@
  */
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { analizar } = require('./parse');
 const { analizarNota } = require('./evaluar');
@@ -92,7 +93,50 @@ async function publicarEvento(nota) {
   return respuesta.json();
 }
 
+// Dos pasadas a la vez (la del reloj y una forzada a mano) duplicaban el mismo
+// suceso en el mapa. Un candado con el pid lo impide.
+const LOCK = path.join(os.tmpdir(), 'openterritorio-noticias.lock');
+
+function tomarCandado() {
+  try {
+    const previo = JSON.parse(fs.readFileSync(LOCK, 'utf8'));
+    const reciente = Date.now() - Number(previo.ts || 0) < 15 * 60_000;
+    let vivo = false;
+    try {
+      process.kill(Number(previo.pid), 0);
+      vivo = true;
+    } catch {
+      vivo = false;
+    }
+    if (reciente && vivo) return false;
+  } catch {
+    // sin candado previo
+  }
+  fs.writeFileSync(LOCK, JSON.stringify({ pid: process.pid, ts: Date.now() }));
+  return true;
+}
+
+function soltarCandado() {
+  try {
+    fs.unlinkSync(LOCK);
+  } catch {
+    // ya no estaba
+  }
+}
+
 async function main() {
+  if (process.argv.includes('--push') && !tomarCandado()) {
+    console.log(JSON.stringify({ resumen: [], aviso: 'ya hay una pasada en curso' }));
+    return;
+  }
+  try {
+    await pasada();
+  } finally {
+    if (process.argv.includes('--push')) soltarCandado();
+  }
+}
+
+async function pasada() {
   const argv = process.argv.slice(2);
   const modoDemo = argv.includes('--demo');
   const push = argv.includes('--push');
