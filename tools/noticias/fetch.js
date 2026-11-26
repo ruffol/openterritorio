@@ -43,6 +43,15 @@ const FUENTES = [
   },
 ];
 
+// Canales públicos de Telegram (t.me/s/<canal>): HTML estático, sin token ni
+// API. Traen el texto, la hora exacta, la foto en alta y el enlace a la nota.
+const TELEGRAM = ['afmedios', 'diariodecolima', 'noticiascolima'];
+
+// Medios con WordPress: su API entrega el texto completo sin abrir el sitio.
+const WORDPRESS = [
+  { nombre: 'elpulsodecolima', url: 'https://elpulsodecolima.com' },
+];
+
 // Medios cuyo RSS está atrasado o no existe: se les lee el sitemap, que los
 // medios actualizan al instante para Google y es texto ligero.
 const SITEMAPS = [
@@ -216,6 +225,78 @@ async function leerSitemap(fuente, horas, profundidad = 0) {
   return notas;
 }
 
+const MUNICIPIOS_COLIMA = /colima|manzanillo|tecom[aá]n|villa de [aá]lvarez|comala|coquimatl[aá]n|cuauht[eé]moc|ixtlahuac[aá]n|minatitl[aá]n|armer[ií]a|cu[ú]yutl[aá]n|suchitl[aá]n/i;
+
+/** Lee un canal público de Telegram con el HTML de su vista previa. */
+async function leerTelegram(canal, horas) {
+  const respuesta = await fetch(`https://t.me/s/${canal}`, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 12)' },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+  const html = await respuesta.text();
+  const desde = Date.now() - horas * 3600_000;
+
+  const notas = [];
+  const bloques = html.match(/tgme_widget_message_wrap[\s\S]*?(?=tgme_widget_message_wrap|<\/main>)/g) || [];
+  for (const bloque of bloques) {
+    const crudo = (bloque.match(/class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/) || [])[1];
+    if (!crudo) continue;
+    const texto = decodificar(crudo);
+    if (texto.length < 40) continue;
+
+    // Solo lo del estado: el canal publica también notas nacionales.
+    if (!MUNICIPIOS_COLIMA.test(texto)) continue;
+
+    const cuando = Date.parse((bloque.match(/<time[^>]+datetime="([^"]+)"/) || [])[1] || 0) || Date.now();
+    if (cuando < desde) continue;
+
+    const foto = (bloque.match(/background-image:url\('([^']+)'\)/) || [])[1] || '';
+    const enlace = (bloque.match(/class="tgme_widget_message_link_preview[^"]*"[^>]+href="([^"]+)"/) || [])[1] || '';
+
+    notas.push({
+      texto,
+      fuente: `tg:${canal}`,
+      url: enlace || `https://t.me/${canal}`,
+      publicado: cuando,
+      imagen: foto,
+      yaCompleta: true, // el mensaje ya trae texto y hora: no hace falta abrir el sitio
+    });
+  }
+  return notas;
+}
+
+/** Lee las últimas entradas de un medio con WordPress (API REST pública). */
+async function leerWordPress(fuente, horas) {
+  const campos = 'link,title,date,excerpt,content,jetpack_featured_media_url';
+  const url = `${fuente.url}/wp-json/wp/v2/posts?per_page=20&_fields=${campos}`;
+  const respuesta = await fetch(url, {
+    headers: { 'User-Agent': UA, Accept: 'application/json' },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+  const lista = await respuesta.json();
+  const desde = Date.now() - horas * 3600_000;
+
+  const notas = [];
+  for (const item of Array.isArray(lista) ? lista : []) {
+    const texto = decodificar(item.content?.rendered || item.excerpt?.rendered || '');
+    const titulo = decodificar(item.title?.rendered || '');
+    const publicado = Date.parse(item.date || '') || 0;
+    if (!texto || publicado < desde) continue;
+    notas.push({
+      texto: `${titulo}. ${texto}`.slice(0, 2500),
+      fuente: fuente.nombre,
+      url: item.link || fuente.url,
+      publicado,
+      imagen: item.jetpack_featured_media_url || '',
+      yaCompleta: true,
+    });
+  }
+  return notas;
+}
+
 async function descargar(fuente) {
   const respuesta = await fetch(fuente.url, {
     headers: { 'User-Agent': UA, Accept: 'application/rss+xml, application/xml, text/xml' },
@@ -265,13 +346,50 @@ async function cuerpoDe(url) {
   }
 }
 
-function unicasSinDedup(notas) {
-  const vistas = new Set();
+// Palabras vacías: no distinguen una nota de otra.
+const VACIAS = new Set(['el','la','los','las','un','una','unos','unas','de','del','al','en','y','o','que','con','por','para','su','sus','se','lo','le','les','es','fue','son','tras','sobre','este','esta','estos','estas','como','mas','más','sin','al','ante','bajo','desde','entre','hasta','hacia','según','durante','mediante','porque','cuando','donde','quien','cual','han','ha','haber','ser','sus','nos','ya','no','ni','si','sí']);
+
+/** Conjunto de palabras significativas de un texto. */
+function tokens(texto) {
+  return new Set(
+    decodificar(String(texto || ''))
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9ñ ]/g, ' ')
+      .split(/\s+/)
+      .filter((t) => t.length > 2 && !VACIAS.has(t)),
+  );
+}
+
+/** Similitud de Jaccard entre dos conjuntos (0 a 1). */
+function similitud(a, b) {
+  let comunes = 0;
+  for (const t of a) if (b.has(t)) comunes += 1;
+  const total = a.size + b.size - comunes;
+  return total === 0 ? 0 : comunes / total;
+}
+
+/**
+ * Deduplica por parecido real del texto (Jaccard sobre palabras), no por los
+ * primeros caracteres: "Ejecutan a hombre en la Oriental" y "Balean a sujeto
+ * en Colima" describen lo mismo aunque no compartan el inicio.
+ */
+function unicasSinDedup(notas, umbral = 0.62) {
   const salida = [];
+  const conjuntos = [];
   for (const nota of notas) {
-    const llave = nota.texto.toLowerCase().replace(/[^a-z0-9 ]/g, '').slice(0, 120);
-    if (vistas.has(llave)) continue;
-    vistas.add(llave);
+    const t = tokens(nota.texto);
+    if (t.size === 0) continue;
+    let repetida = false;
+    for (const previo of conjuntos) {
+      if (similitud(t, previo) >= umbral) {
+        repetida = true;
+        break;
+      }
+    }
+    if (repetida) continue;
+    conjuntos.push(t);
     salida.push(nota);
   }
   return salida;
@@ -295,6 +413,32 @@ async function main() {
       } catch (error) {
         errores.push(`${fuente.nombre}: ${error.message}`);
         console.log(`${fuente.nombre}: error ${error.message}`);
+      }
+    }),
+  );
+
+  // Telegram: el canal publica antes que el portal y trae foto y hora exacta.
+  await Promise.all(
+    TELEGRAM.map(async (canal) => {
+      try {
+        const notas = await leerTelegram(canal, horas);
+        todas.push(...notas);
+        console.log(`tg:${canal}: ${notas.length} mensajes de Colima`);
+      } catch (error) {
+        console.log(`tg:${canal}: error ${error.message}`);
+      }
+    }),
+  );
+
+  // WordPress: texto completo sin descargar la página entera.
+  await Promise.all(
+    WORDPRESS.map(async (medio) => {
+      try {
+        const notas = await leerWordPress(medio, horas);
+        todas.push(...notas);
+        console.log(`${medio.nombre} (wordpress): ${notas.length} notas`);
+      } catch (error) {
+        console.log(`${medio.nombre} (wordpress): error ${error.message}`);
       }
     }),
   );
@@ -330,7 +474,10 @@ async function main() {
   for (const pagina of PAGINAS_FB) {
     const resultado = await fb.leerPagina(pagina);
     if (!resultado.ok) {
-      console.log(`fb:${pagina}: omitida (${resultado.motivo})`);
+      // Sin cookie no hay nada que leer: se calla para no llenar el log.
+      if (!/sin cookie/.test(resultado.motivo)) {
+        console.log(`fb:${pagina}: omitida (${resultado.motivo})`);
+      }
       continue;
     }
     for (const nota of resultado.notas) {
@@ -341,7 +488,9 @@ async function main() {
 
   // Los agregadores solo dan el titular: para las notas que huelen a crimen o
   // accidente se abre el artículo, que es donde vienen la colonia y la hora.
-  const candidatas = unicasSinDedup(todas).filter((n) => SOSPECHOSO.test(n.texto));
+  const candidatas = unicasSinDedup(todas).filter(
+    (n) => !n.yaCompleta && SOSPECHOSO.test(n.texto),
+  );
   let abiertas = 0;
   const lote = 5;
   for (let i = 0; i < candidatas.length; i += lote) {
@@ -381,4 +530,20 @@ if (require.main === module) {
   });
 }
 
-module.exports = { FUENTES, PORTADAS, SITEMAPS, descargar, leerPortada, leerSitemap, cuerpoDe, decodificar, leerRSS };
+module.exports = {
+  tokens,
+  similitud,
+  FUENTES,
+  PORTADAS,
+  SITEMAPS,
+  TELEGRAM,
+  WORDPRESS,
+  descargar,
+  leerPortada,
+  leerSitemap,
+  leerTelegram,
+  leerWordPress,
+  cuerpoDe,
+  decodificar,
+  leerRSS,
+};

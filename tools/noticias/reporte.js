@@ -15,7 +15,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { analizar } = require('./parse');
 const { analizarNota } = require('./evaluar');
-const { FUENTES, PORTADAS, SITEMAPS, descargar, leerPortada, leerSitemap, cuerpoDe } = require('./fetch');
+const {
+  FUENTES,
+  PORTADAS,
+  SITEMAPS,
+  TELEGRAM,
+  WORDPRESS,
+  descargar,
+  leerPortada,
+  leerSitemap,
+  leerTelegram,
+  leerWordPress,
+  cuerpoDe,
+} = require('./fetch');
 const { NoticiasDB } = require('./db');
 
 const SOSPECHOSO = /homicid|ejecutad|asesinat|balacer|cadaver|cuerpo sin vida|acribillad|sicari|choque|volcadur|atropell|accidente|motociclis|asalto|robo|herido|lesionad|detenid|fallecid/i;
@@ -64,6 +76,48 @@ async function recolectar(horas) {
           recientes: 0,
           masNueva: 0,
         });
+      }
+    }),
+  );
+
+  await Promise.all(
+    TELEGRAM.map(async (canal) => {
+      try {
+        const notas = await leerTelegram(canal, horas);
+        fuentes.push({
+          nombre: `tg:${canal}`,
+          tipo: 'telegram',
+          url: `https://t.me/s/${canal}`,
+          estado: notas.length ? 'ok' : 'sin mensajes de Colima',
+          items: notas.length,
+          recientes: notas.length,
+          masNueva: notas.reduce((m, n) => Math.max(m, n.publicado || 0), 0),
+        });
+        todas.push(...notas);
+      } catch (error) {
+        fuentes.push({ nombre: `tg:${canal}`, tipo: 'telegram', url: `https://t.me/s/${canal}`,
+          estado: `error: ${error.message}`, items: 0, recientes: 0, masNueva: 0 });
+      }
+    }),
+  );
+
+  await Promise.all(
+    WORDPRESS.map(async (medio) => {
+      try {
+        const notas = await leerWordPress(medio, horas);
+        fuentes.push({
+          nombre: `${medio.nombre} (wp)`,
+          tipo: 'wordpress',
+          url: medio.url,
+          estado: 'ok',
+          items: notas.length,
+          recientes: notas.length,
+          masNueva: notas.reduce((m, n) => Math.max(m, n.publicado || 0), 0),
+        });
+        todas.push(...notas);
+      } catch (error) {
+        fuentes.push({ nombre: `${medio.nombre} (wp)`, tipo: 'wordpress', url: medio.url,
+          estado: `error: ${error.message}`, items: 0, recientes: 0, masNueva: 0 });
       }
     }),
   );
@@ -139,7 +193,7 @@ async function recolectar(horas) {
   let abiertas = 0;
   for (let i = 0; i < sospechosas.length; i += 5) {
     await Promise.all(
-      sospechosas.slice(i, i + 5).map(async (nota) => {
+      sospechosas.filter((n) => !n.yaCompleta).slice(i, i + 5).map(async (nota) => {
         const cuerpo = await cuerpoDe(nota.url);
         if (cuerpo.texto) {
           nota.detalle = cuerpo.texto;
