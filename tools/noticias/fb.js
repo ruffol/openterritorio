@@ -21,8 +21,9 @@ const UA =
 
 const ARCHIVOS = [
   process.env.FB_COOKIE_FILE,
-  path.join(__dirname, '.fb_cookie'),
+  path.join(os.homedir(), 'openterritorio', '.fb_cookie'),
   path.join(os.homedir(), 'openterritorio', 'fb_cookie.txt'),
+  path.join(__dirname, '.fb_cookie'),
 ].filter(Boolean);
 
 function leerCookie() {

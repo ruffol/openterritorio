@@ -22,6 +22,7 @@ APK_APPLIED="$APP/.apk_stamp"
 LLAVE_IN="/sdcard/Download/openterritorio.llave"
 # Token de la API de Facebook (mismo mecanismo que la llave del modelo).
 TOKEN_FB_IN="/sdcard/Download/openterritorio.fbtoken"
+COOKIE_FB_IN="/sdcard/Download/openterritorio.fbcookie"
 LOG="$APP/logs/deploy.log"
 mkdir -p "$APP/logs"
 
@@ -86,6 +87,15 @@ while true; do
       chmod 600 "$APP/.llave" 2>/dev/null || true
       rm -f "$LLAVE_IN" 2>/dev/null || true
       echo "$(date -Is) llave del modelo instalada" >>"$LOG"
+    fi
+  fi
+
+  # Cookie de sesión de Facebook (cuenta secundaria).
+  if [ -f "$COOKIE_FB_IN" ]; then
+    if mkdir -p "$APP" && cp "$COOKIE_FB_IN" "$APP/.fb_cookie" 2>/dev/null; then
+      chmod 600 "$APP/.fb_cookie" 2>/dev/null || true
+      rm -f "$COOKIE_FB_IN" 2>/dev/null || true
+      echo "$(date -Is) cookie de Facebook instalada" >>"$LOG"
     fi
   fi
 

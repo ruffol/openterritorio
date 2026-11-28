@@ -836,6 +836,45 @@ function createHttpApp({
     }
   });
 
+  // Cookie de Facebook (sesión de la cuenta secundaria) para leer las páginas.
+  const archivoCookie = () => rutaArchivo('.fb_cookie');
+
+  app.post('/api/admin/monitor/fbcookie', (req, res) => {
+    const cookie = String(req.body?.cookie || '').trim();
+    if (!cookie.includes('c_user=') || !cookie.includes('xs=')) {
+      res.status(400).json({ ok: false, error: 'faltan c_user y xs en la cookie' });
+      return;
+    }
+    if (cookie.length > 4000) {
+      res.status(400).json({ ok: false, error: 'cookie demasiado larga' });
+      return;
+    }
+    try {
+      const archivo = archivoCookie();
+      fs.mkdirSync(path.dirname(archivo), { recursive: true });
+      fs.writeFileSync(archivo, `${cookie}\n`, { mode: 0o600 });
+      fs.chmodSync(archivo, 0o600);
+      log.warn('cookie de facebook guardada', { archivo, largo: cookie.length });
+      res.json({ ok: true, largo: cookie.length });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.get('/api/admin/monitor/fbcookie', (req, res) => {
+    try {
+      const archivo = archivoCookie();
+      const texto = fs.existsSync(archivo) ? fs.readFileSync(archivo, 'utf8') : '';
+      res.json({
+        ok: true,
+        configurada: texto.includes('c_user=') && texto.includes('xs='),
+        campos: texto.split(';').map((p) => p.split('=')[0].trim()).filter(Boolean),
+      });
+    } catch (error) {
+      res.json({ ok: true, configurada: false, error: error.message });
+    }
+  });
+
   app.get('/api/admin/monitor/llave', (req, res) => {
     try {
       const archivo = archivoLlave();
