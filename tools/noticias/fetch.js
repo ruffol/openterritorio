@@ -43,6 +43,9 @@ const FUENTES = [
   },
 ];
 
+// Facebook por la API oficial: solo si hay token (FB_GRAPH_TOKEN o .fb_token).
+const graph = require('./graph');
+
 // Canales públicos de Telegram (t.me/s/<canal>): HTML estático, sin token ni
 // API. Traen el texto, la hora exacta, la foto en alta y el enlace a la nota.
 const TELEGRAM = ['afmedios', 'diariodecolima', 'noticiascolima'];
@@ -435,6 +438,21 @@ async function main() {
       }
     }),
   );
+
+  // Facebook (API oficial): la fuente principal en Colima cuando hay token.
+  if (graph.disponible()) {
+    try {
+      const resultado = await graph.leerPaginassVigiladas(horas);
+      if (resultado.ok) {
+        todas.push(...resultado.notas);
+        console.log(`facebook: ${resultado.notas.length} publicaciones ${JSON.stringify(resultado.detalle)}`);
+      } else {
+        console.log(`facebook: omitida (${resultado.motivo})`);
+      }
+    } catch (error) {
+      console.log(`facebook: error ${error.message}`);
+    }
+  }
 
   // Telegram: el canal publica antes que el portal y trae foto y hora exacta.
   await Promise.all(

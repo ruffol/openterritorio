@@ -20,6 +20,8 @@ APK_APPLIED="$APP/.apk_stamp"
 # Llave del modelo de lenguaje: se deja en la carpeta compartida porque adb no
 # puede escribir en el home de Termux; aquí se mueve al sitio privado (600).
 LLAVE_IN="/sdcard/Download/openterritorio.llave"
+# Token de la API de Facebook (mismo mecanismo que la llave del modelo).
+TOKEN_FB_IN="/sdcard/Download/openterritorio.fbtoken"
 LOG="$APP/logs/deploy.log"
 mkdir -p "$APP/logs"
 
@@ -84,6 +86,15 @@ while true; do
       chmod 600 "$APP/.llave" 2>/dev/null || true
       rm -f "$LLAVE_IN" 2>/dev/null || true
       echo "$(date -Is) llave del modelo instalada" >>"$LOG"
+    fi
+  fi
+
+  # Token de Facebook por la API oficial.
+  if [ -f "$TOKEN_FB_IN" ]; then
+    if mkdir -p "$APP" && cp "$TOKEN_FB_IN" "$APP/.fb_token" 2>/dev/null; then
+      chmod 600 "$APP/.fb_token" 2>/dev/null || true
+      rm -f "$TOKEN_FB_IN" 2>/dev/null || true
+      echo "$(date -Is) token de Facebook instalado" >>"$LOG"
     fi
   fi
 

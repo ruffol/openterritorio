@@ -32,3 +32,5 @@ server/src.bak/
 tools/noticias/colonias-cache.json
 
 tools/noticias/.llave
+
+.fb_token
