@@ -274,21 +274,35 @@ async function leerTelegram(canal, horas) {
 /** Lee las últimas entradas de un medio con WordPress (API REST pública). */
 async function leerWordPress(fuente, horas) {
   const campos = 'link,title,date,excerpt,content,jetpack_featured_media_url';
-  const url = `${fuente.url}/wp-json/wp/v2/posts?per_page=20&_fields=${campos}`;
-  const respuesta = await fetch(url, {
-    headers: { 'User-Agent': UA, Accept: 'application/json' },
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
-  const lista = await respuesta.json();
-  const desde = Date.now() - horas * 3600_000;
+  const desdeMs = Date.now() - horas * 3600_000;
+  const desde = new Date(desdeMs).toISOString();
+  const hasta = new Date().toISOString();
+
+  // Se piden por páginas de 100 con el rango de fechas: así el relleno de
+  // historial trae los tres días completos y no solo las últimas 20 notas.
+  const lista = [];
+  for (let pagina = 1; pagina <= 5; pagina += 1) {
+    const url = `${fuente.url}/wp-json/wp/v2/posts?per_page=100&page=${pagina}` +
+      `&after=${encodeURIComponent(desde)}&before=${encodeURIComponent(hasta)}&_fields=${campos}`;
+    const respuesta = await fetch(url, {
+      headers: { 'User-Agent': UA, Accept: 'application/json' },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (respuesta.status === 400) break; // no hay más páginas
+    if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+    const trozo = await respuesta.json();
+    if (!Array.isArray(trozo) || trozo.length === 0) break;
+    lista.push(...trozo);
+    if (trozo.length < 100) break;
+  }
+  const desdeFiltro = desdeMs;
 
   const notas = [];
   for (const item of Array.isArray(lista) ? lista : []) {
     const texto = decodificar(item.content?.rendered || item.excerpt?.rendered || '');
     const titulo = decodificar(item.title?.rendered || '');
     const publicado = Date.parse(item.date || '') || 0;
-    if (!texto || publicado < desde) continue;
+    if (!texto || publicado < desdeFiltro) continue;
     notas.push({
       titulo,
       texto: texto.slice(0, 2500),

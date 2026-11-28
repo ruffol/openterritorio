@@ -939,6 +939,18 @@ function createHttpApp({
     res.json({ ok: true, dias, total: filas.length, celdas: lista, maximo: lista[0]?.n || 0 });
   });
 
+  // Relleno único de historial: lee N días completos y los pasa por el modelo.
+  // Responde en cuanto arranca; el avance se ve en /api/admin/monitor.
+  app.post('/api/admin/monitor/backfill', (req, res) => {
+    if (typeof monitor?.rellenar !== 'function') {
+      res.status(503).json({ ok: false, error: 'monitor apagado' });
+      return;
+    }
+    const dias = Math.min(Math.max(Number(req.body?.dias) || 3, 1), 30);
+    res.json({ ok: true, dias, mensaje: 'relleno iniciado; consulta /api/admin/monitor' });
+    monitor.rellenar(dias).catch((error) => log.error('relleno historico falló', { error: error.message }));
+  });
+
   // Forzar una pasada ahora (útil tras desplegar).
   app.post('/api/admin/monitor/run', async (req, res) => {
     if (typeof monitor?.correrAhora !== 'function') {

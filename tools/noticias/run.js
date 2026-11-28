@@ -113,7 +113,7 @@ async function analizarConModelo(entradas, db) {
   const ordenadas = entradas
     .filter((e) => String(e.texto || '').length > 40)
     .sort((a, b) => (Number(b.publicado) || 0) - (Number(a.publicado) || 0))
-    .slice(0, 40);
+    .slice(0, Number(process.env.NOTICIAS_MAX || 40));
 
   const salida = [];
   for (const lote of llm.lotes(ordenadas, 12)) {
@@ -288,7 +288,12 @@ async function pasada() {
     // llevaba el detalle completo (texto, imagen, enlace).
     const faltaDetalle =
       (estado === 'repetida' || estado === 'duplicada') && !guardada.publicadaConDetalle;
-    if (push && (estado === 'nueva' || faltaDetalle)) {
+    // Al rellenar historial solo se publican en el mapa las notas recientes:
+    // lo viejo queda en la base (lista de noticias y mapa de calor).
+    const ventanaPush = Number(process.env.NOTICIAS_PUSH_HORAS || 0);
+    const recienteParaMapa = !ventanaPush ||
+      (Date.now() - Date.parse(nota.fecha_hecho || '')) <= ventanaPush * 3600_000;
+    if (push && recienteParaMapa && (estado === 'nueva' || faltaDetalle)) {
       guardada.imagen = guardada.imagen || nota.imagen || '';
       publicado = await publicarEvento(guardada);
       guardada.publicadaConDetalle = true;

@@ -12,8 +12,14 @@ $stage = Join-Path $dist 'stage'
 $npm = 'C:\Program Files\nodejs\npm.cmd'
 # El tar de git-bash interpreta "C:\..." como host remoto; se usa el de Windows.
 $tar = 'C:\Windows\System32\tar.exe'
+# adb no siempre está en el PATH de PowerShell: se busca en el SDK.
+$adb = 'adb'
+if (-not (Get-Command adb -ErrorAction SilentlyContinue)) {
+  $candidato = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'
+  if (Test-Path $candidato) { $adb = $candidato } else { throw 'adb no encontrado; agrégalo al PATH' }
+}
 
-$deviceLine = (& adb devices) | Select-String 'device$'
+$deviceLine = (& $adb devices) | Select-String 'device$'
 if (-not $deviceLine) { throw 'No hay dispositivo ADB conectado.' }
 
 if (-not $SkipTests) {
@@ -54,11 +60,11 @@ $stampFile = Join-Path $dist 'stamp.txt'
 Set-Content -Path $stampFile -Value $stamp -NoNewline
 
 if (-not $NoPush) {
-  & adb push $tarPath /sdcard/Download/openterritorio.tar.gz | Out-Host
-  & adb push $stampFile /sdcard/Download/openterritorio.stamp | Out-Host
+  & $adb push $tarPath /sdcard/Download/openterritorio.tar.gz | Out-Host
+  & $adb push $stampFile /sdcard/Download/openterritorio.stamp | Out-Host
 }
 
-$ipLine = (& adb shell "ip -4 addr show wlan0 2>/dev/null | grep 'inet '") -join ' '
+$ipLine = (& $adb shell "ip -4 addr show wlan0 2>/dev/null | grep 'inet '") -join ' '
 $ip = if ($ipLine -match 'inet\s+([0-9.]+)/') { $matches[1] } else { '192.168.100.3' }
 
 Write-Host ''

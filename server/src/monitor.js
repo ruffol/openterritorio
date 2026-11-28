@@ -40,7 +40,7 @@ function crearMonitor({ appRoot, baseUrl, token, intervalMs = 15 * 60_000, log }
     }
   }
 
-  function correrPaso(script, args) {
+  function correrPaso(script, args, extraEnv = {}) {
     return new Promise((resolve) => {
       const hijo = spawn(process.execPath, [path.join(carpeta, script), ...args], {
         cwd: appRoot,
@@ -48,6 +48,7 @@ function crearMonitor({ appRoot, baseUrl, token, intervalMs = 15 * 60_000, log }
           ...process.env,
           OPENTERITORIO_URL: baseUrl,
           OPENTERITORIO_TOKEN: token,
+          ...extraEnv,
         },
       });
       let salida = '';
@@ -63,6 +64,44 @@ function crearMonitor({ appRoot, baseUrl, token, intervalMs = 15 * 60_000, log }
       hijo.on('exit', (code) => resolve({ code, salida, errores }));
       hijo.on('error', (error) => resolve({ code: -1, salida: '', errores: error.message }));
     });
+  }
+
+  /**
+   * Relleno único de historial: lee N días completos (API de WordPress con
+   * rango de fechas, sitemaps y RSS) y los pasa por el modelo y la base.
+   */
+  async function rellenar(dias = 3) {
+    if (estado.corriendo) return { ok: false, error: 'ya hay una pasada en curso' };
+    estado.corriendo = true;
+    const horas = Math.max(24, Math.min(Number(dias) || 3, 30) * 24);
+    const notas = path.join(appRoot, 'notas-historial.json');
+    const db = path.join(appRoot, 'noticias.json');
+    try {
+      anotar(`relleno historico: ${horas} h`);
+      const descarga = await correrPaso('fetch.js', ['--out', notas, '--horas', String(horas)]);
+      anotar(`relleno fetch exit=${descarga.code} ${descarga.salida.trim().split('\n').slice(-2).join(' | ')}`);
+      const corrida = await correrPaso('run.js', ['--feed', notas, '--db', db, '--push'], {
+        NOTICIAS_MAX: '300',
+        NOTICIAS_PUSH_HORAS: '24',
+      });
+      anotar(`relleno run exit=${corrida.code} ${corrida.salida.trim().slice(-300)}`);
+      let resumen = null;
+      try {
+        const parsed = JSON.parse(corrida.salida);
+        resumen = {
+          procesadas: parsed.resumen?.length ?? 0,
+          nuevas: parsed.resumen?.filter((r) => r.estado === 'nueva').length ?? 0,
+          descartadas: parsed.resumen?.filter((r) => r.estado === 'descartada').length ?? 0,
+          guardadas: parsed.db?.total ?? 0,
+        };
+      } catch {
+        resumen = { error: 'salida no legible' };
+      }
+      estado.relleno = { cuando: new Date().toISOString(), dias: horas / 24, resumen };
+      return { ok: true, ...estado.relleno };
+    } finally {
+      estado.corriendo = false;
+    }
   }
 
   async function ciclo() {
@@ -129,6 +168,7 @@ function crearMonitor({ appRoot, baseUrl, token, intervalMs = 15 * 60_000, log }
       if (timer) clearInterval(timer);
     },
     correrAhora: ciclo,
+    rellenar,
     estado: estadoActual,
   };
 }
