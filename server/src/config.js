@@ -45,6 +45,9 @@ function buildConfig(overrides = {}) {
     token: process.env.TOKEN || '',
     dbPath: path.resolve(process.cwd(), process.env.DB_PATH || 'data/tactical.db'),
     logFile: path.resolve(process.cwd(), process.env.LOG_FILE || 'logs/server.log'),
+    // Raíz donde viven noticias.json y la llave del modelo (por omisión, una
+    // carpeta arriba de app/ si existe logs/).
+    rootDir: overrides.rootDir ? path.resolve(overrides.rootDir) : null,
     // Carpeta con el APK publicado para OTA: latest.json + openterritorio.apk.
     appDir: path.resolve(process.cwd(), process.env.APP_DIR || 'app'),
     // Despliegue remoto del backend: el vigilante del teléfono (runit) mira

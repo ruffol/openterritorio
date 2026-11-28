@@ -289,6 +289,27 @@ function createHttpApp({
   monitor,
   vigiaTunel,
 }) {
+  // Raíz donde viven noticias.json y la llave del modelo. En el teléfono el
+  // backend corre desde app/ y la base está un nivel arriba; en pruebas se
+  // apunta a un directorio temporal.
+  // Raíces posibles: en el teléfono el backend corre desde app/ y la base
+  // (noticias.json, .llave) vive un nivel arriba; en pruebas, en un temporal.
+  const raices = (() => {
+    if (config?.rootDir) return [config.rootDir];
+    const cwd = process.cwd();
+    return [cwd, path.resolve(cwd, '..'), path.resolve(cwd, '..', '..')];
+  })();
+  const raizApp = raices[0];
+
+  /** Primera raíz que contenga el archivo (o la primera raíz si no existe). */
+  const rutaArchivo = (nombre) => {
+    for (const raiz of raices) {
+      const candidato = path.join(raiz, nombre);
+      if (fs.existsSync(candidato)) return candidato;
+    }
+    return path.join(raizApp, nombre);
+  };
+
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', true);
@@ -780,12 +801,9 @@ function createHttpApp({
   // Reinicia la base del monitor: la próxima pasada vuelve a leer las notas
   // desde cero (útil cuando cambia la forma de guardar el detalle).
   app.post('/api/admin/monitor/reset', (req, res) => {
-    const appRoot = fs.existsSync(path.join(process.cwd(), 'logs'))
-      ? process.cwd()
-      : path.resolve(process.cwd(), '..');
     const borrados = [];
     for (const nombre of ['noticias.json', 'notas.json']) {
-      const archivo = path.join(appRoot, nombre);
+      const archivo = rutaArchivo(nombre);
       if (fs.existsSync(archivo)) {
         fs.rmSync(archivo, { force: true });
         borrados.push(nombre);
@@ -793,6 +811,120 @@ function createHttpApp({
     }
     log.warn('base del monitor reiniciada', { borrados });
     res.json({ ok: true, borrados });
+  });
+
+
+  // --- Llave del modelo de lenguaje -----------------------------------------
+  // Se guarda en ~/openterritorio/.llave (permisos 600) y NUNCA se devuelve.
+  const archivoLlave = () => rutaArchivo('.llave');
+
+  app.post('/api/admin/monitor/llave', (req, res) => {
+    const llave = String(req.body?.llave || '').trim();
+    if (llave.length < 12 || llave.length > 400) {
+      res.status(400).json({ ok: false, error: 'llave inválida' });
+      return;
+    }
+    try {
+      const archivo = archivoLlave();
+      fs.mkdirSync(path.dirname(archivo), { recursive: true });
+      fs.writeFileSync(archivo, `${llave}\n`, { mode: 0o600 });
+      fs.chmodSync(archivo, 0o600);
+      log.warn('llave del modelo guardada', { archivo, largo: llave.length });
+      res.json({ ok: true, largo: llave.length });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  app.get('/api/admin/monitor/llave', (req, res) => {
+    try {
+      const archivo = archivoLlave();
+      const hay = fs.existsSync(archivo) && fs.readFileSync(archivo, 'utf8').trim().length > 0;
+      res.json({ ok: true, configurada: hay });
+    } catch (error) {
+      res.json({ ok: true, configurada: false, error: error.message });
+    }
+  });
+
+  // --- Noticias guardadas (para consultarlas desde la app) -------------------
+  function leerNoticias() {
+    for (const nombre of ['noticias.json', 'notas.json']) {
+      const archivo = rutaArchivo(nombre);
+      try {
+        const datos = JSON.parse(fs.readFileSync(archivo, 'utf8'));
+        if (Array.isArray(datos?.notas)) return datos.notas;
+      } catch {
+        // se prueba el siguiente nombre
+      }
+    }
+    return [];
+  }
+
+  app.get('/api/news', (req, res) => {
+    const dias = Math.min(Math.max(Number(req.query.dias) || 7, 1), 120);
+    const desde = Date.now() - dias * 86400_000;
+    const limite = Math.min(Math.max(Number(req.query.limite) || 200, 1), 500);
+    const notas = leerNoticias()
+      .filter((n) => {
+        const cuando = Date.parse(n.fecha_hecho || n.registrada || 0) || 0;
+        return cuando >= desde;
+      })
+      .slice(0, limite)
+      .map((n) => ({
+        id: n.id,
+        tipo: n.tipo || '',
+        etiqueta: n.etiqueta || '',
+        lugar: n.lugar || '',
+        municipio: n.municipio || '',
+        lat: n.lat,
+        lon: n.lon,
+        precision: n.precision_lugar || '',
+        cuando: n.fecha_hecho || n.registrada || null,
+        texto: String(n.texto || '').slice(0, 700),
+        url: n.url || '',
+        imagen: n.imagen || '',
+        fuentes: Array.isArray(n.fuentes) ? n.fuentes : [n.fuente].filter(Boolean),
+        evento: n.evento || null,
+      }));
+    res.json({ ok: true, dias, total: notas.length, notas });
+  });
+
+  // --- Mapa de calor de incidencias -----------------------------------------
+  // Rejilla de ~500 m sobre los eventos guardados: dice dónde se acumulan los
+  // sucesos en la ventana pedida.
+  app.get('/api/heat', (req, res) => {
+    const dias = Math.min(Math.max(Number(req.query.dias) || 30, 1), 365);
+    const desdeMs = Date.now() - dias * 86400_000;
+    let filas = [];
+    try {
+      filas = repo.listEvents ? repo.listEvents() : [];
+    } catch {
+      filas = [];
+    }
+    // Además de los eventos vivos, se cuenta el histórico de noticias: los
+    // eventos caducan, la base de noticias no, y es la que deja ver cómo se
+    // mueve la mancha de incidencia en el tiempo.
+    const historicas = leerNoticias().map((n) => ({
+      created_ms: Date.parse(n.fecha_hecho || n.registrada || 0) || 0,
+      lat: Number(n.lat),
+      lon: Number(n.lon),
+    }));
+    const celdas = new Map();
+    for (const fila of [...filas.map((f) => ({ created_ms: Number(f.created_ms || f.ts || 0), lat: f.lat_e7 / 1e7, lon: f.lon_e7 / 1e7 })), ...historicas]) {
+      const cuando = Number(fila.created_ms || 0);
+      if (cuando && cuando < desdeMs) continue;
+      const lat = Number(fila.lat);
+      const lon = Number(fila.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      const iLat = Math.round(lat / 0.005);
+      const iLon = Math.round(lon / 0.005);
+      const clave = `${iLat},${iLon}`;
+      const actual = celdas.get(clave) || { lat: iLat * 0.005, lon: iLon * 0.005, n: 0 };
+      actual.n += 1;
+      celdas.set(clave, actual);
+    }
+    const lista = [...celdas.values()].sort((a, b) => b.n - a.n).slice(0, 400);
+    res.json({ ok: true, dias, total: filas.length, celdas: lista, maximo: lista[0]?.n || 0 });
   });
 
   // Forzar una pasada ahora (útil tras desplegar).

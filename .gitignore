@@ -30,3 +30,5 @@ tools/noticias/.fb_cookie
 server/src.bak/
 *.png
 tools/noticias/colonias-cache.json
+
+tools/noticias/.llave

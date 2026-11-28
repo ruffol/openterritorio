@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+
+import 'noticias.dart';
 import '../protocol/tactical_packet.dart';
 import 'landmarks.dart';
 
@@ -202,6 +204,31 @@ class AppState extends ChangeNotifier {
   int ownHeading = 0;
   double ownSpeedKmh = 0;
   double ownAltitudeM = 0;
+
+  /// Noticias guardadas en el servidor y rejilla del mapa de calor: se piden en
+  /// línea cuando el operador abre la lista o enciende la capa.
+  List<Noticia> noticias = const <Noticia>[];
+  List<CeldaCalor> calor = const <CeldaCalor>[];
+  int calorMaximo = 1;
+  bool verCalor = false;
+  int diasNoticias = 7;
+  int diasCalor = 30;
+
+  void aplicarNoticias(List<Noticia> lista) {
+    noticias = List<Noticia>.unmodifiable(lista);
+    notifyListeners();
+  }
+
+  void aplicarCalor(List<CeldaCalor> celdas) {
+    calor = List<CeldaCalor>.unmodifiable(celdas);
+    calorMaximo = celdas.fold<int>(1, (max, c) => c.n > max ? c.n : max);
+    notifyListeners();
+  }
+
+  void alternarCalor({bool? encender}) {
+    verCalor = encender ?? !verCalor;
+    notifyListeners();
+  }
 
   /// Segundos epoch por debajo de los cuales no se muestran eventos, alertas
   /// ni pares: es lo que deja el botón "limpiar marcas" y se guarda en disco.

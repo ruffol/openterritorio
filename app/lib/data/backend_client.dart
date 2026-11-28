@@ -270,6 +270,40 @@ class BackendClient {
     return list is List ? list : <dynamic>[];
   }
 
+  /// Noticias guardadas en el servidor (para consultarlas en línea).
+  Future<List<dynamic>> fetchNews({int dias = 7}) async {
+    final decoded = await _getJson('/api/news?dias=$dias');
+    final lista = decoded['notas'];
+    return lista is List ? lista : <dynamic>[];
+  }
+
+  /// Celdas del mapa de calor de incidencias.
+  Future<List<dynamic>> fetchHeat({int dias = 30}) async {
+    final decoded = await _getJson('/api/heat?dias=$dias');
+    final lista = decoded['celdas'];
+    return lista is List ? lista : <dynamic>[];
+  }
+
+  Future<Map<String, dynamic>> _getJson(String path) async {
+    final response = await http
+        .get(
+          _restUri(path),
+          headers: <String, String>{'Authorization': 'Bearer $token'},
+        )
+        .timeout(_requestTimeout);
+    if (response.statusCode == 401) {
+      throw BackendException('token rechazado (401)');
+    }
+    if (response.statusCode != 200) {
+      throw BackendException(mensajeHttp(response.statusCode));
+    }
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is! Map<String, dynamic>) {
+      throw BackendException('respuesta inesperada de $path');
+    }
+    return decoded;
+  }
+
   /// Última versión publicada para OTA, o `null` si no hay ninguna.
   Future<Map<String, dynamic>?> fetchAppVersion() async {
     final response = await http

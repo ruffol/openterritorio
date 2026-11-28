@@ -1,10 +1,10 @@
 {
-  "version": "0.11.0",
-  "version_code": 25,
+  "version": "0.12.0",
+  "version_code": 26,
   "apk": "openterritorio.apk",
-  "size_bytes": 82223742,
-  "sha256": "040b6fb35c47982b2275c93704d6e913e20a568a643c91e5c04f43754b7c31ac",
-  "notes": "Sucesos que solo dicen el municipio ya no se pintan como pin exacto: halo translucido de 2.5 km y aviso en el detalle",
+  "size_bytes": 82814022,
+  "sha256": "a423cddc4ce3c10b38890ae08918cf450b71178442bb9a84f04fcfa34179fbd8",
+  "notes": "Noticias guardadas en linea (hoy/7/30/90 dias) y capa de mapa de calor de incidencias con historico",
   "published_at": "2026-11-25T20:32:51.111809Z",
   "url": ""
 }

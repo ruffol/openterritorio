@@ -13,11 +13,13 @@ import '../data/backend_client.dart';
 import '../data/connection_settings.dart';
 import '../data/device_channel.dart';
 import '../data/ota_channel.dart';
+import '../data/noticias.dart';
 import '../data/ota_service.dart';
 import '../protocol/tactical_packet.dart';
 import 'board.dart';
 import 'connection_dialog.dart';
 import 'event_dialog.dart';
+import 'noticias_sheet.dart';
 import 'status_bar.dart';
 import 'update_dialog.dart';
 
@@ -72,6 +74,46 @@ class _HomePageState extends State<HomePage> {
     _viewport.goTo(lat, lon, zoom: 16);
     _viewport.follow = true;
     _showSnack('Centrado en tu posición (${lat.toStringAsFixed(5)}, ${lon.toStringAsFixed(5)})');
+  }
+
+  /// Enciende o apaga la capa de calor; al encenderla pide la rejilla al
+  /// servidor con la ventana elegida.
+  Future<void> _encenderCalor(int dias) async {
+    _state.diasCalor = dias;
+    final client = _client;
+    if (client == null) {
+      _avisar('Sin conexión con el servidor');
+      return;
+    }
+    try {
+      final crudas = await client.fetchHeat(dias: _state.diasCalor);
+      final celdas = <CeldaCalor>[
+        for (final item in crudas)
+          if (item is Map<String, dynamic>) CeldaCalor.fromJson(item),
+      ];
+      _state.aplicarCalor(celdas);
+      _state.alternarCalor(encender: true);
+      if (celdas.isEmpty) {
+        _avisar('Sin sucesos en los últimos ${_state.diasCalor} días');
+      }
+    } catch (error) {
+      _avisar('No se pudo cargar el mapa de calor: $error');
+    }
+  }
+
+  /// Noticias guardadas en el servidor (días pasados, consulta en línea).
+  Future<void> _abrirNoticias() async {
+    final client = _client;
+    if (client == null) {
+      _avisar('Sin conexión con el servidor');
+      return;
+    }
+    await mostrarNoticias(context, client: client, state: _state);
+  }
+
+  void _avisar(String texto) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(texto)));
   }
 
   Future<void> _pickLayer() async {
@@ -775,6 +817,34 @@ class _HomePageState extends State<HomePage> {
             tooltip: 'Versión y Repositorio',
             onPressed: _showAbout,
             icon: const Icon(Icons.info_outline),
+          ),
+          PopupMenuButton<int>(
+            tooltip: 'Mapa de calor de incidencias',
+            icon: Icon(
+              _state.verCalor
+                  ? Icons.local_fire_department
+                  : Icons.local_fire_department_outlined,
+            ),
+            onSelected: (dias) {
+              if (dias == 0) {
+                _state.alternarCalor(encender: false);
+              } else {
+                _encenderCalor(dias);
+              }
+            },
+            itemBuilder: (context) => <PopupMenuEntry<int>>[
+              if (_state.verCalor)
+                const PopupMenuItem<int>(value: 0, child: Text('Apagar la capa')),
+              const PopupMenuItem<int>(value: 7, child: Text('Últimos 7 días')),
+              const PopupMenuItem<int>(value: 30, child: Text('Últimos 30 días')),
+              const PopupMenuItem<int>(value: 90, child: Text('Últimos 90 días')),
+              const PopupMenuItem<int>(value: 365, child: Text('Último año')),
+            ],
+          ),
+          IconButton(
+            tooltip: 'Noticias guardadas',
+            onPressed: _abrirNoticias,
+            icon: const Icon(Icons.article_outlined),
           ),
           IconButton(
             tooltip: 'Quitar avisos del mapa',

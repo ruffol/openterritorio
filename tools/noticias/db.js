@@ -52,7 +52,15 @@ class NoticiasDB {
     }
 
     const dia = nota.fecha_hecho.slice(0, 10);
-    const clave = `${nota.tipo}|${nota.municipio}|${dia}`;
+    // El lugar entra en la llave: dos accidentes distintos del mismo municipio
+    // el mismo día ya no se fusionan en uno.
+    const lugarClave = String(nota.lugar || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    const clave = `${nota.tipo}|${nota.municipio}|${dia}|${lugarClave}`;
     const existente = this.porClave.get(clave);
     if (existente) {
       const fuentes = new Set([...(existente.fuentes || [existente.fuente]), nota.fuente]);

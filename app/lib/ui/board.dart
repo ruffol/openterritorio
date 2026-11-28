@@ -367,6 +367,10 @@ class BoardPainter extends CustomPainter {
 
   static const _eventColor = Color(0xFFFFB020);
 
+  /// Mapa de calor de incidencias: rojo translúcido, más opaco donde se
+  /// acumulan los sucesos del periodo elegido.
+  static const _calorColor = Color(0xFFFF3B30);
+
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = _bg);
@@ -408,6 +412,27 @@ class BoardPainter extends CustomPainter {
         color,
         chip: true,
       );
+    }
+
+    // Capa de calor: se pinta debajo de los marcadores.
+    if (state.verCalor && state.calor.isNotEmpty) {
+      for (final celda in state.calor) {
+        final centro = viewport.project(celda.lat, celda.lon, size);
+        if (centro.dx < -120 || centro.dy < -120) continue;
+        if (centro.dx > size.width + 120 || centro.dy > size.height + 120) continue;
+        final intensidad = (celda.n / state.calorMaximo).clamp(0.18, 1.0);
+        final radio = (420 / viewport.metersPerPixel) * (0.85 + 0.45 * intensidad);
+        canvas.drawCircle(
+          centro,
+          radio,
+          Paint()..color = _calorColor.withValues(alpha: 0.08 + 0.26 * intensidad),
+        );
+        canvas.drawCircle(
+          centro,
+          radio * 0.55,
+          Paint()..color = _calorColor.withValues(alpha: 0.06 + 0.18 * intensidad),
+        );
+      }
     }
 
     for (final event in state.events) {

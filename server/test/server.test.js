@@ -74,6 +74,7 @@ async function startServer(overrides = {}) {
     token: TOKEN,
     logLevel: 'error',
     monitorEnabled: false,
+    rootDir: dir,
     ...overrides,
   });
   await rt.start(0, '127.0.0.1');
@@ -741,6 +742,79 @@ test('un cliente que inunda el WebSocket se cierra con 1008', async () => {
     assert.equal(code, 1008, 'debe cerrarse por límite de ritmo');
   } finally {
     client.close();
+    await server.close();
+  }
+});
+
+test('el mapa de calor agrupa los eventos por celdas de 500 m', async () => {
+  const server = await startServer();
+  try {
+    for (const [id, lat, lon] of [
+      ['a1b2c3d4e5f60701', 19.2433, -103.7247],
+      ['a1b2c3d4e5f60702', 19.2435, -103.7249],
+      ['a1b2c3d4e5f60703', 19.3100, -103.7500],
+    ]) {
+      const r = await getJson(server.url, '/api/events', TOKEN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lon, category_id: 4, short_note: `calor ${id}` }),
+      });
+      assert.equal(r.status, 201);
+    }
+    const calor = await getJson(server.url, '/api/heat?dias=30');
+    assert.equal(calor.status, 200);
+    assert.equal(calor.body.ok, true);
+    assert.equal(calor.body.celdas.length, 2, 'dos celdas distintas');
+    assert.equal(calor.body.celdas[0].n, 2, 'la celda con dos sucesos va primero');
+    assert.equal(calor.body.maximo, 2);
+  } finally {
+    await server.close();
+  }
+});
+
+test('/api/news entrega las notas guardadas y filtra por días', async () => {
+  const server = await startServer();
+  const raiz = server.dir;
+  try {
+    const archivo = path.join(raiz, 'noticias.json');
+    fs.writeFileSync(
+      archivo,
+      JSON.stringify({
+        notas: [
+          {
+            id: 'n1',
+            tipo: 'Homicidio',
+            etiqueta: 'Homicidio · Colima',
+            lugar: 'Colima',
+            lat: 19.24,
+            lon: -103.72,
+            precision_lugar: 'municipio (aprox)',
+            fecha_hecho: new Date().toISOString(),
+            texto: 'cita guardada',
+            url: 'https://ejemplo.mx/nota',
+            imagen: '',
+            fuentes: ['afmedios'],
+          },
+          {
+            id: 'vieja',
+            tipo: 'Asalto',
+            etiqueta: 'Asalto · Tecomán',
+            fecha_hecho: new Date(Date.now() - 40 * 86400_000).toISOString(),
+          },
+        ],
+      }),
+      'utf8',
+    );
+    const res = await getJson(server.url, '/api/news?dias=7');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.notas.length, 1, 'solo la de esta semana');
+    assert.equal(res.body.notas[0].etiqueta, 'Homicidio · Colima');
+    assert.equal(res.body.notas[0].precision, 'municipio (aprox)');
+
+    // Sin cabecera de autorización no se entrega nada.
+    const sinToken = await fetch(`${server.url}/api/news`);
+    assert.equal(sinToken.status, 401, 'sin token no se entrega');
+  } finally {
     await server.close();
   }
 });

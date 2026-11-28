@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:openterritorio/data/app_state.dart';
 import 'package:openterritorio/data/landmarks.dart';
+import 'package:openterritorio/data/noticias.dart';
 import 'package:openterritorio/data/vectors.dart';
 import 'package:openterritorio/ui/board.dart';
 
@@ -435,5 +436,29 @@ void main() {
     });
     expect(exacto.aproximado, isFalse);
     expect(aproximado.aproximado, isTrue);
+  });
+
+  test('la capa de calor tiñe el mapa donde se acumulan sucesos', () async {
+    const size = Size(400, 700);
+    await _seedTiles(MapLayerId.oscuro, 19.2433, -103.7247);
+    final viewport = MapViewport(zoom: 13);
+
+    final sin = AppState()..selfId = 2001;
+    final con = AppState()..selfId = 2001;
+    con.aplicarCalor(<CeldaCalor>[
+      const CeldaCalor(lat: 19.2433, lon: -103.7247, n: 6),
+      const CeldaCalor(lat: 19.2500, lon: -103.7100, n: 2),
+    ]);
+    con.alternarCalor(encender: true);
+
+    final (_, base) = await _paintBoard(sin, viewport, size);
+    final (imagen, conCalor) = await _paintBoard(con, viewport, size);
+
+    int diferencia = 0;
+    for (var i = 0; i < base.length; i += 4) {
+      diferencia += (conCalor[i] - base[i]).abs() + (conCalor[i + 1] - base[i + 1]).abs();
+    }
+    expect(diferencia, greaterThan(50000), reason: 'el calor debe cambiar los píxeles');
+    await _save(imagen, 'board_calor.png');
   });
 }
