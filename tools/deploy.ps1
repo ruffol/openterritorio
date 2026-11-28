@@ -10,6 +10,8 @@ $server = Join-Path $root 'server'
 $dist = Join-Path $root 'dist'
 $stage = Join-Path $dist 'stage'
 $npm = 'C:\Program Files\nodejs\npm.cmd'
+# El tar de git-bash interpreta "C:\..." como host remoto; se usa el de Windows.
+$tar = 'C:\Windows\System32\tar.exe'
 
 $deviceLine = (& adb devices) | Select-String 'device$'
 if (-not $deviceLine) { throw 'No hay dispositivo ADB conectado.' }
@@ -41,7 +43,7 @@ Copy-Item (Join-Path $root 'app\assets\vector\localidades.json.gz') (Join-Path $
 
 $tarPath = Join-Path $dist 'openterritorio.tar.gz'
 Remove-Item $tarPath -Force -ErrorAction SilentlyContinue
-& tar -czf $tarPath -C $stage .
+& $tar -czf $tarPath -C $stage .
 if ($LASTEXITCODE -ne 0) { throw 'tar falló' }
 $tarSize = [math]::Round((Get-Item $tarPath).Length / 1MB, 1)
 

@@ -17,6 +17,9 @@ APPLIED="$APP/.deployed_stamp"
 APK_DIR="/sdcard/Download/openterritorio-app"
 APK_STAMP="$APK_DIR/app.stamp"
 APK_APPLIED="$APP/.apk_stamp"
+# Llave del modelo de lenguaje: se deja en la carpeta compartida porque adb no
+# puede escribir en el home de Termux; aquí se mueve al sitio privado (600).
+LLAVE_IN="/sdcard/Download/openterritorio.llave"
 LOG="$APP/logs/deploy.log"
 mkdir -p "$APP/logs"
 
@@ -75,6 +78,15 @@ reiniciar_backend() {
 }
 
 while true; do
+  # Llave del modelo: si llegó por adb, se instala y se borra el original.
+  if [ -f "$LLAVE_IN" ]; then
+    if mkdir -p "$APP" && cp "$LLAVE_IN" "$APP/.llave" 2>/dev/null; then
+      chmod 600 "$APP/.llave" 2>/dev/null || true
+      rm -f "$LLAVE_IN" 2>/dev/null || true
+      echo "$(date -Is) llave del modelo instalada" >>"$LOG"
+    fi
+  fi
+
   # Backend: extrae el tarball y reinicia el servicio.
   if [ -f "$STAMP" ] && [ -f "$TARBALL" ]; then
     NEW=$(cat "$STAMP" 2>/dev/null || true)

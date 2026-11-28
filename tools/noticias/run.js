@@ -113,7 +113,7 @@ async function analizarConModelo(entradas, db) {
   const ordenadas = entradas
     .filter((e) => String(e.texto || '').length > 40)
     .sort((a, b) => (Number(b.publicado) || 0) - (Number(a.publicado) || 0))
-    .slice(0, 25);
+    .slice(0, 40);
 
   const salida = [];
   for (const lote of llm.lotes(ordenadas, 12)) {
@@ -261,6 +261,27 @@ async function pasada() {
   const resumen = [];
 
   const registrar = async (nota, rescatada) => {
+    // El mismo hecho llega dos veces: una nota da la calle y otra solo el
+    // municipio. Se fusionan en lugar de publicar dos pines.
+    const dia = String(nota.fecha_hecho || '').slice(0, 10);
+    const aproximada = /aprox/.test(String(nota.precision_lugar || ''));
+    const hermanas = db.porDia(nota.tipo, nota.municipio, dia);
+    if (aproximada) {
+      const exacta = hermanas.find((n) => !/aprox/.test(String(n.precision_lugar || '')));
+      if (exacta) {
+        db.sumarFuente(exacta, nota.fuente);
+        resumen.push({ estado: 'repetida', tipo: nota.tipo, lugar: exacta.lugar, etiqueta: exacta.etiqueta, texto: 'fusionada con la nota exacta' });
+        return;
+      }
+    } else {
+      const aprox = hermanas.find((n) => /aprox/.test(String(n.precision_lugar || '')));
+      if (aprox) {
+        db.mejorarLugar(aprox, nota);
+        resumen.push({ estado: 'mejorada', tipo: nota.tipo, lugar: nota.lugar, etiqueta: nota.etiqueta, lat: nota.lat, lon: nota.lon });
+        return;
+      }
+    }
+
     const { estado, nota: guardada } = db.agregar(nota);
     let publicado = null;
     // Se publica la primera vez y, una sola vez más, si la nota guardada no

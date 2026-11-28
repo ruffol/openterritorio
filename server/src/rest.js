@@ -904,13 +904,25 @@ function createHttpApp({
     // Además de los eventos vivos, se cuenta el histórico de noticias: los
     // eventos caducan, la base de noticias no, y es la que deja ver cómo se
     // mueve la mancha de incidencia en el tiempo.
-    const historicas = leerNoticias().map((n) => ({
-      created_ms: Date.parse(n.fecha_hecho || n.registrada || 0) || 0,
-      lat: Number(n.lat),
-      lon: Number(n.lon),
+    const vivas = filas.map((f) => ({
+      created_ms: Number(f.created_ms || f.ts || 0),
+      lat: f.lat_e7 / 1e7,
+      lon: f.lon_e7 / 1e7,
     }));
+    // Una noticia que ya está publicada como evento no se cuenta dos veces:
+    // se descarta si hay un evento a menos de ~450 m el mismo día.
+    const historicas = leerNoticias()
+      .map((n) => ({
+        created_ms: Date.parse(n.fecha_hecho || n.registrada || 0) || 0,
+        lat: Number(n.lat),
+        lon: Number(n.lon),
+      }))
+      .filter((n) => !vivas.some((v) =>
+        Math.abs(v.lat - n.lat) < 0.004 &&
+        Math.abs(v.lon - n.lon) < 0.004 &&
+        Math.abs((v.created_ms || 0) - (n.created_ms || 0)) < 36 * 3600_000));
     const celdas = new Map();
-    for (const fila of [...filas.map((f) => ({ created_ms: Number(f.created_ms || f.ts || 0), lat: f.lat_e7 / 1e7, lon: f.lon_e7 / 1e7 })), ...historicas]) {
+    for (const fila of [...vivas, ...historicas]) {
       const cuando = Number(fila.created_ms || 0);
       if (cuando && cuando < desdeMs) continue;
       const lat = Number(fila.lat);

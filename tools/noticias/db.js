@@ -86,6 +86,34 @@ class NoticiasDB {
     fs.renameSync(tmp, this.archivo); // atómico: nunca queda un JSON a medias
   }
 
+  /** Notas del mismo tipo y municipio en un día (para fusionar con/sin lugar). */
+  porDia(tipo, municipio, dia) {
+    return this.notas.filter(
+      (n) => n.tipo === tipo && n.municipio === municipio &&
+        String(n.fecha_hecho || '').slice(0, 10) === dia,
+    );
+  }
+
+  /** Añade una fuente a una nota ya guardada. */
+  sumarFuente(nota, fuente) {
+    const fuentes = new Set([...(nota.fuentes || [nota.fuente]), fuente].filter(Boolean));
+    nota.fuentes = [...fuentes];
+    this.guardar();
+  }
+
+  /** Mejora una nota aproximada con el lugar exacto que llegó después. */
+  mejorarLugar(nota, nueva) {
+    nota.lugar = nueva.lugar;
+    nota.lat = nueva.lat;
+    nota.lon = nueva.lon;
+    nota.precision_lugar = nueva.precision_lugar;
+    nota.etiqueta = nueva.etiqueta;
+    nota.texto = nota.texto || nueva.texto;
+    const fuentes = new Set([...(nota.fuentes || []), nueva.fuente].filter(Boolean));
+    nota.fuentes = [...fuentes];
+    this.guardar();
+  }
+
   recientes(horas = 48) {
     const desde = Date.now() - horas * 3600_000;
     return this.notas.filter((n) => new Date(n.fecha_hecho).getTime() >= desde);
