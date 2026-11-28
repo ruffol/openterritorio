@@ -15,6 +15,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { extraer: extraerDelJson } = require('./fb-extraer');
 
 const UA =
   'Mozilla/5.0 (Linux; Android 11; SM-A105M) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
@@ -119,13 +120,13 @@ const HOSTS = (fuente) => [
   {
     nombre: 'm',
     url: `https://m.facebook.com/${fuente}?v=timeline&locale=es_LA`,
-    extraer: extraerDeHtmlConSesion,
+    extraer: (html, f) => [...extraerDelJson(html, f), ...extraerDeHtmlConSesion(html, f)],
     ua: 'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
   },
   {
     nombre: 'www',
     url: `https://www.facebook.com/${fuente}/posts/?locale=es_LA`,
-    extraer: extraerDeHtmlConSesion,
+    extraer: (html, f) => [...extraerDelJson(html, f), ...extraerDeHtmlConSesion(html, f)],
     ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
   },
 ];
@@ -150,10 +151,18 @@ async function leerPagina(fuente) {
           'User-Agent': host.ua,
           Cookie: cookie,
           'Accept-Language': 'es-MX,es;q=0.9',
-          Accept: 'text/html,application/xhtml+xml',
+          // Facebook devuelve 400 si faltan estas cabeceras de navegador.
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'sec-ch-ua': '"Chromium";v="121", "Google Chrome";v="121"',
+          'sec-ch-ua-mobile': host.nombre === 'www' ? '?0' : '?1',
+          'sec-ch-ua-platform': host.nombre === 'www' ? '"Windows"' : '"Android"',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
         },
         redirect: 'follow',
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(30000),
       });
     } catch (error) {
       intentos.push({ host: host.nombre, error: error.message });
@@ -161,14 +170,16 @@ async function leerPagina(fuente) {
     }
 
     const html = await respuesta.text();
-    const bajo = html.toLowerCase();
-    if (bajo.includes('checkpoint') || bajo.includes('/login/?next')) {
-      intentos.push({ host: host.nombre, motivo: 'muro de login o checkpoint', bytes: html.length });
-      continue;
-    }
+    // Se intenta extraer primero: el HTML trae la palabra "login" en su propio
+    // JavaScript y antes se confundía con un muro de acceso.
     const notas = host.extraer(html, fuente);
     intentos.push({ host: host.nombre, status: respuesta.status, bytes: html.length, notas: notas.length });
     if (notas.length > 0) return { ok: true, notas, intentos };
+
+    const bajo = html.toLowerCase();
+    if (bajo.includes('checkpoint') || /action="\/login/.test(bajo)) {
+      intentos[intentos.length - 1].motivo = 'muro de login o checkpoint';
+    }
   }
 
   return {
