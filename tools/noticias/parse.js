@@ -258,7 +258,7 @@ function lugarMencionado(texto) {
 
   // 1. Vías y referencias con marcador explícito (lo más común en accidentes).
   const vias = [
-    /\b(libramiento|bulevar|boulevard|blvd\.?|avenida|av\.|calzada|perif[eé]rico|autopista|carretera|prolongaci[oó]n|glorieta|puente|retorno)\s+((?:de\s+|del\s+|la\s+|el\s+|las\s+|los\s+)?[A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*(?:\s+(?:de|del|la|las|los|y)?\s*[A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*){0,4})/,
+    /\b(libramiento|bulevar|boulevard|blvd\.?|avenida|av\.|calzada|perif[eé]rico|autopista|carretera|prolongaci[oó]n|glorieta|puente|retorno|vialidad|acceso a|camell[oó]n|entronque)\s+((?:de\s+|del\s+|la\s+|el\s+|las\s+|los\s+)?[A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*(?:\s+(?:de|del|la|las|los|y)?\s*[A-ZÁÉÍÓÚÑ][\wáéíóúñ.]*){0,4})/,
   ];
   for (const re of vias) {
     const m = crudo.match(re);

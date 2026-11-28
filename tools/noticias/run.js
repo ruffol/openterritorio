@@ -154,6 +154,43 @@ async function analizarConModelo(entradas, db) {
       let lugar = null;
       if (nombreLugar.length >= 4) {
         lugar = await gazetteer.geocodificar(nombreLugar, municipio);
+        // "autopista Colima-Manzanillo, acceso a Tecomán" o "vialidad rumbo a la
+        // Pepsi, antes del Motel Las Palmas": si el texto completo no resuelve,
+        // se prueban los trozos y las referencias sueltas (El Trapiche, el motel).
+        if (!lugar) {
+          const trozos = nombreLugar
+            .split(/[,;]|\ba la altura de\b|\bfrente a\b|\bantes de llegar\b|\brumbo a\b|\bcerca de\b/i)
+            .map((t) => t.replace(/^(?:la|el|las|los|un|una)\s+/i, '').trim())
+            .filter((t) => t.length >= 5);
+          for (const trozo of trozos) {
+            lugar = await gazetteer.geocodificar(trozo, municipio);
+            if (lugar) break;
+          }
+        }
+      }
+      // Si el modelo solo dio el municipio (o resolvió a la cabecera) pero la
+      // nota describe la vía, manda la vía: "vialidad rumbo a la Pepsi".
+      if (!lugar || lugar.tipo === 'municipio') {
+        const { lugarMencionado } = require('./parse');
+        const mencion = lugarMencionado(texto);
+        if (mencion && mencion.length >= 5) {
+          const fino = await gazetteer.geocodificar(mencion, municipio);
+          if (fino) lugar = fino;
+        }
+      }
+      if (!lugar) {
+        const { lugarMencionado } = require('./parse');
+        const mencion = lugarMencionado(texto);
+        if (mencion && mencion.length >= 5) {
+          lugar = await gazetteer.geocodificar(mencion, municipio);
+        }
+      }
+      // Una vía larga (autopista) puede devolver un punto a 40 km del hecho:
+      // si queda lejos de la cabecera citada, vale más el halo del municipio.
+      if (lugar && lugar.tipo === 'via' && gazetteer.MUNICIPIOS[municipio]) {
+        const [clat, clon] = gazetteer.MUNICIPIOS[municipio];
+        const d = Math.hypot((lugar.lat - clat) * 111, (lugar.lon - clon) * 105);
+        if (d > 20) lugar = null;
       }
       if (!lugar && gazetteer.MUNICIPIOS[municipio]) {
         // Sin lugar verificable pero el municipio es de Colima: se marca como

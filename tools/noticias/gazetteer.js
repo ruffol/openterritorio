@@ -270,8 +270,29 @@ async function geocodificar(nombre, municipio) {
   const centro = MUNICIPIOS[normalizar(municipio || 'colima')];
   // Se prueba primero sin el municipio: "Tapeixtles" es de Manzanillo aunque la
   // nota venga firmada por "Colima Noticias".
+  //
+  // Las notas escriben "autopista Colima-Manzanillo, acceso a Tecomán" o
+  // "El Trapiche, carretera a Manzanillo": el guion y la coma rompen la
+  // consulta, así que se prueban variantes del nombre antes de rendirse.
+  const variantes = new Set();
+  variantes.add(limpio);
+  variantes.add(limpio.replace(/\s*-\s*/g, ' '));
+  for (const trozo of limpio.split(/[,;]/)) {
+    const t = trozo.trim();
+    if (t.length >= 5) {
+      variantes.add(t);
+      variantes.add(t.replace(/\s*-\s*/g, ' '));
+    }
+  }
+  // "vialidad Villa de Álvarez rumbo a la Pepsi" -> "vialidad Villa de Álvarez"
+  const palabras = limpio.replace(/\s*-\s*/g, ' ').split(/\s+/);
+  if (palabras.length > 4) {
+    variantes.add(palabras.slice(0, 4).join(' '));
+    variantes.add(palabras.slice(0, 3).join(' '));
+  }
+
   const intentos = [
-    `${limpio}, Colima, Mexico`,
+    ...[...variantes].slice(0, 4).map((v) => `${v}, Colima, Mexico`),
     centro ? `${limpio}, ${municipio}, Colima, Mexico` : null,
   ].filter(Boolean);
 
